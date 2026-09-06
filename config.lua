@@ -16,13 +16,27 @@ Config.mdt = {
         },
     },
     weaponLicence = {
+        weapon = 'weapon_pistol',
+        targetModel = 'prop_target_blue_arrow',
+        targetHeading = 180.0,
         range = vector3(22.5, -1104.5, 29.8),
         interactionDistance = 2.0,
-        targetRadius = 0.55,
-        requiredScore = 8,
         shots = 10,
+        trainingTimeout = 120000,
+        qualification = {
+            game = 'skillbar',
+            opts = { attempts = 1, zoneSize = 0.14, timeLimit = 8000 },
+        },
         targetOffsets = {
             vector3(0.0, 12.0, 0.0), vector3(-2.0, 14.0, 0.4), vector3(2.0, 16.0, -0.2),
+        },
+    },
+    analysis = {
+        ttl = 300000,                  -- ms allowed to finish all evidence-analysis stages
+        stages = {
+            { game = 'skillbar', opts = { attempts = 1 } },                 -- microscopy alignment
+            { game = 'circuit', opts = { attempts = 1 } },                  -- ballistic comparison
+            { game = 'pinpad', opts = { attempts = 1 } },                   -- registry confirmation; PIN is generated server-side
         },
     },
     charges = {
