@@ -16,64 +16,79 @@ local function lines(records, formatter)
 end
 
 local function openTerminal()
-    local selected = QB.nui.openMenu({
-        { id = 'person', label = 'Person & licence lookup', icon = 'contact' },
-        { id = 'vehicle', label = 'Vehicle lookup', icon = 'car-front' },
-        { id = 'charges', label = 'Available charges', icon = 'scale' },
-        { id = 'criminal', label = 'Add criminal record', icon = 'file-plus' },
-        { id = 'medical', label = 'Add medical record', icon = 'heart-pulse' },
-        { id = 'firearm', label = 'Firearm registration lookup', icon = 'crosshair' },
-        { id = 'analysis', label = 'Analyse ballistic casing', icon = 'microscope' },
-    }, 'Mobile data terminal')
-    if not selected or selected.cancelled or not selected.selectedId then return end
-    if selected.selectedId == 'person' then
+    QB.nui.registerApp({
+        id = 'qbmdt:terminal',
+        title = 'Mobile Data Terminal',
+        description = 'Role-gated records and case tools',
+        icon = 'monitor-smartphone',
+        navigation = {
+            {
+                id = 'lookup', label = 'Lookups', icon = 'search',
+                content = { title = 'Records lookup', blocks = { { type = 'actions', actions = {
+                    { id = 'person', label = 'Person & licence lookup', icon = 'contact' },
+                    { id = 'vehicle', label = 'Vehicle lookup', icon = 'car-front' },
+                    { id = 'charges', label = 'Available charges', icon = 'scale' },
+                    { id = 'firearm', label = 'Firearm registration lookup', icon = 'crosshair' },
+                } } } },
+            },
+            {
+                id = 'records', label = 'Records', icon = 'files',
+                content = { title = 'Create a record', blocks = { { type = 'actions', actions = {
+                    { id = 'criminal', label = 'Add criminal record', icon = 'file-plus' },
+                    { id = 'medical', label = 'Add medical record', icon = 'heart-pulse' },
+                    { id = 'analysis', label = 'Analyse ballistic casing', icon = 'microscope' },
+                } } } },
+            },
+        },
+        footer = 'Records access is verified by the server.',
+        onAction = function(selectedId)
+            if selectedId == 'person' then
         local input = form('Person lookup', { { id = 'citizenid', label = 'Citizen ID', required = true } })
-        if not input then return end
+        if not input then return {} end
         local record, err = QB.callback.trigger('qbmdt:server:person', input.citizenid)
-        if not record then return notify(err or 'No record found.', 'error') end
+        if not record then notify(err or 'No record found.', 'error'); return {} end
         local detail = ('%s\nDriver licence: %s'):format(record.name, record.driverLicensed and 'valid' or 'not held')
         if record.weaponLicence then detail = detail .. '\nWeapon licence: ' .. record.weaponLicence end
         if record.firearms then detail = detail .. '\nFirearms:\n' .. lines(record.firearms, function(r) return r.weapon_name .. ' — ' .. r.serial end) end
         if record.criminal then detail = detail .. '\nCriminal:\n' .. lines(record.criminal, function(r) return r.charge_code .. ': ' .. (r.notes or '') end) end
         if record.medical then detail = detail .. '\nMedical:\n' .. lines(record.medical, function(r) return r.notes end) end
-        return notify(detail)
-    end
-    if selected.selectedId == 'vehicle' then
+        notify(detail)
+    elseif selectedId == 'vehicle' then
         local input = form('Vehicle lookup', { { id = 'plate', label = 'Plate', required = true } })
-        if not input then return end
+        if not input then return {} end
         local row, err = QB.callback.trigger('qbmdt:server:vehicle', input.plate)
-        return notify(row and ('%s — owner %s — %s'):format(row.plate, row.citizenid, row.state) or (err or 'No vehicle found.'), row and 'info' or 'error')
-    end
-    if selected.selectedId == 'charges' then
+        notify(row and ('%s — owner %s — %s'):format(row.plate, row.citizenid, row.state) or (err or 'No vehicle found.'), row and 'info' or 'error')
+    elseif selectedId == 'charges' then
         local rows, err = QB.callback.trigger('qbmdt:server:charges')
-        return notify(rows and lines(rows, function(r) return ('%s: %s ($%d)'):format(r.code, r.label, r.fine) end) or (err or 'Not authorised.'), rows and 'info' or 'error')
-    end
-    if selected.selectedId == 'criminal' then
+        notify(rows and lines(rows, function(r) return ('%s: %s ($%d)'):format(r.code, r.label, r.fine) end) or (err or 'Not authorised.'), rows and 'info' or 'error')
+    elseif selectedId == 'criminal' then
         local input = form('Criminal record', {
             { id = 'citizenid', label = 'Citizen ID', required = true }, { id = 'charge', label = 'Charge code', required = true },
             { id = 'notes', label = 'Notes', type = 'textarea' },
         })
-        if not input then return end
+        if not input then return {} end
         local ok, err = QB.callback.trigger('qbmdt:server:addCriminal', input.citizenid, input.charge, input.notes)
-        return notify(ok and 'Criminal record saved.' or (err or 'Could not save record.'), ok and 'success' or 'error')
-    end
-    if selected.selectedId == 'medical' then
+        notify(ok and 'Criminal record saved.' or (err or 'Could not save record.'), ok and 'success' or 'error')
+    elseif selectedId == 'medical' then
         local input = form('Medical record', {
             { id = 'citizenid', label = 'Citizen ID', required = true }, { id = 'notes', label = 'Treatment / notes', type = 'textarea', required = true },
         })
-        if not input then return end
+        if not input then return {} end
         local ok, err = QB.callback.trigger('qbmdt:server:addMedical', input.citizenid, input.notes)
-        return notify(ok and 'Medical record saved.' or (err or 'Could not save record.'), ok and 'success' or 'error')
-    end
-    if selected.selectedId == 'analysis' then
+        notify(ok and 'Medical record saved.' or (err or 'Could not save record.'), ok and 'success' or 'error')
+    elseif selectedId == 'analysis' then
         local input = form('Ballistic analysis', { { id = 'caseid', label = 'Casing case ID', required = true } })
         if input then TriggerServerEvent('qbmdt:server:beginAnalysis', input.caseid) end
-        return
+    elseif selectedId == 'firearm' then
+        local input = form('Firearm registration', { { id = 'serial', label = 'Gun serial number', required = true } })
+        if not input then return {} end
+        local row, err = QB.callback.trigger('qbmdt:server:shopFirearm', input.serial)
+        notify(row and ('%s — owner %s — licence %s'):format(row.weapon_name, row.owner_citizenid, row.licence_number) or (err or 'No registered sale found.'), row and 'info' or 'error')
     end
-    local input = form('Firearm registration', { { id = 'serial', label = 'Gun serial number', required = true } })
-    if not input then return end
-    local row, err = QB.callback.trigger('qbmdt:server:shopFirearm', input.serial)
-    notify(row and ('%s — owner %s — licence %s'):format(row.weapon_name, row.owner_citizenid, row.licence_number) or (err or 'No registered sale found.'), row and 'info' or 'error')
+    return {}
+        end,
+    })
+    QB.nui.openApp('qbmdt:terminal')
 end
 
 RegisterNetEvent('qbmdt:client:open', openTerminal)
