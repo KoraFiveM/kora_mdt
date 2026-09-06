@@ -64,6 +64,22 @@ h.test('all remote gameplay events use bounded qblib ingress', function()
     h.assertTrue(next(handle.netHandlers) == nil, 'gameplay ingress must not bypass qblib registration')
 end)
 
+h.test('MDT open returns the authorised role and explains access denial', function()
+    resetObservations()
+    handle.ensurePlayer(90, { job = { name = 'ambulance', onduty = true } })
+    handle.net('qbmdt:server:open', 90)
+    local opened = handle.eventsNamed('qbmdt:client:open', 90)
+    h.assertEqual(#opened, 1)
+    h.assertEqual(opened[1].args[1], 'medical')
+
+    handle.ensurePlayer(91, { job = { name = 'police', onduty = false } })
+    handle.net('qbmdt:server:open', 91)
+    h.assertEqual(#handle.eventsNamed('qbmdt:client:open', 91), 0)
+    h.assertEqual(#handle.notifications, 1)
+    h.assertEqual(handle.notifications[1].src, 91)
+    h.assertEqual(handle.notifications[1].payload.type, 'error')
+end)
+
 h.test('weapon licence start enforces distance, existing licence, active state, and inventory failure', function()
     resetObservations()
     handle.ensurePlayer(1, { coords = vector3(0.0, 0.0, 0.0) })
@@ -85,10 +101,22 @@ h.test('weapon licence start enforces distance, existing licence, active state, 
     handle.startTrainingError = 'busy'
     start(4)
     handle.startTrainingResult = true
-    h.assertEqual(#handle.notifications, 1)
-    h.assertEqual(handle.notifications[1].payload.message, 'busy')
+    h.assertEqual(#handle.notifications, 4)
+    h.assertEqual(handle.notifications[1].payload.message, 'Move closer to the range marker.')
+    h.assertEqual(handle.notifications[2].payload.message, 'You already hold a weapon licence.')
+    h.assertEqual(handle.notifications[3].payload.message, 'A range session is already in progress.')
+    h.assertEqual(handle.notifications[4].payload.message, 'busy')
     fireRounds(4, 1, Config.mdt.weaponLicence.shots)
     h.assertTrue(latestAuthorization(4) == nil, 'failed start must not create session state')
+end)
+
+h.test('weapon licence start accepts the full configured Ammu-Nation interior', function()
+    resetObservations()
+    local target = Config.mdt.weaponLicence.targetOffsets[#Config.mdt.weaponLicence.targetOffsets]
+    local range = Config.mdt.weaponLicence.range
+    handle.ensurePlayer(5, { coords = vector3(range.x + target.x, range.y + target.y, range.z + target.z) })
+    handle.net('qbmdt:server:startWeaponLicence', 5)
+    h.assertEqual(#handle.starts, 1)
 end)
 
 h.test('trusted training rounds must have the right owner, weapon, and strict order', function()
@@ -105,65 +133,38 @@ h.test('trusted training rounds must have the right owner, weapon, and strict or
     fireRounds(10, 1, Config.mdt.weaponLicence.shots - 1)
     h.assertTrue(latestAuthorization(10) == nil, 'qualification must not start early')
     fireRounds(10, Config.mdt.weaponLicence.shots, Config.mdt.weaponLicence.shots)
-
-    local authorization = latestAuthorization(10)
-    h.assertEqual(authorization.game, Config.mdt.weaponLicence.qualification.game)
-    h.assertTableEqual(authorization.opts, Config.mdt.weaponLicence.qualification.opts)
-    local count = #handle.authorizations
+    h.assertEqual(handle.eventsNamed('qbmdt:client:weaponLicenceResult', 10)[1].args[1], true,
+        'firing every issued round passes the live-fire test')
+    local count = #handle.eventsNamed('qbmdt:client:weaponLicenceResult', 10)
     fireRounds(10, Config.mdt.weaponLicence.shots, Config.mdt.weaponLicence.shots)
-    h.assertEqual(#handle.authorizations, count, 'Nth round may authorize only once')
+    h.assertEqual(#handle.eventsNamed('qbmdt:client:weaponLicenceResult', 10), count, 'the final round may finish only once')
 end)
 
-h.test('only the exact bound, one-use qualification proof issues a licence', function()
+h.test('completing every issued training round issues a licence once', function()
     resetObservations()
     start(20)
-    local premature = handle.issueProof(20, Config.mdt.weaponLicence.qualification.game, 'unused')
-    handle.net('qbmdt:server:completeWeaponLicence', 20, premature)
-    h.assertEqual(handle.sqlWrites, 0, 'early proof must not issue')
-
     fireRounds(20, 1, Config.mdt.weaponLicence.shots)
-    local authorization = latestAuthorization(20)
-    local wrongOwner = handle.issueProof(21, authorization.game, authorization.token)
-    local wrongGame = handle.issueProof(20, 'pinpad', authorization.token)
-    local wrongAuthorization = handle.issueProof(20, authorization.game, 'other')
-    handle.net('qbmdt:server:completeWeaponLicence', 20, wrongOwner)
-    handle.net('qbmdt:server:completeWeaponLicence', 20, wrongGame)
-    handle.net('qbmdt:server:completeWeaponLicence', 20, wrongAuthorization)
-    h.assertEqual(handle.sqlWrites, 0, 'mismatched proofs must not issue')
-
-    local proof = handle.issueProof(20, authorization.game, authorization.token)
-    handle.net('qbmdt:server:completeWeaponLicence', 20, proof)
     h.assertEqual(handle.sqlWrites, 1)
     h.assertEqual(#handle.metadataWrites, 1)
     h.assertEqual(#handle.stops, 1)
     h.assertEqual(handle.eventsNamed('qbmdt:client:weaponLicenceResult', 20)[1].args[1], true)
 
-    handle.net('qbmdt:server:completeWeaponLicence', 20, proof)
-    h.assertEqual(handle.sqlWrites, 1, 'replay must not issue a second licence')
+    fireRounds(20, 1, Config.mdt.weaponLicence.shots)
+    h.assertEqual(handle.sqlWrites, 1, 'replayed rounds cannot issue a second licence')
 end)
 
-h.test('licence completion stays locked through persistence and reports metadata failure', function()
+h.test('licence completion reports metadata failure', function()
     resetObservations()
     start(30)
     fireRounds(30, 1, Config.mdt.weaponLicence.shots)
-    local authorization = latestAuthorization(30)
-    local proof = handle.issueProof(30, authorization.game, authorization.token)
-    local startsBefore = #handle.starts
-    handle.onLicenceWrite = function()
-        handle.net('qbmdt:server:startWeaponLicence', 30)
-    end
-    handle.net('qbmdt:server:completeWeaponLicence', 30, proof)
-    handle.onLicenceWrite = nil
-    h.assertEqual(#handle.starts, startsBefore, 're-entrant start must remain locked')
+    h.assertEqual(handle.eventsNamed('qbmdt:client:weaponLicenceResult', 30)[1].args[1], true)
 
-    start(31)
-    fireRounds(31, 1, Config.mdt.weaponLicence.shots)
-    authorization = latestAuthorization(31)
-    proof = handle.issueProof(31, authorization.game, authorization.token)
+    -- Metadata is written while the final range round is processed.
+    start(32)
     handle.metadataResult = false
-    handle.net('qbmdt:server:completeWeaponLicence', 31, proof)
+    fireRounds(32, 1, Config.mdt.weaponLicence.shots)
     handle.metadataResult = true
-    local result = handle.eventsNamed('qbmdt:client:weaponLicenceResult', 31)[1]
+    local result = handle.eventsNamed('qbmdt:client:weaponLicenceResult', 32)[1]
     h.assertEqual(result.args[1], false, 'metadata failure must not be reported as success')
 end)
 
@@ -178,7 +179,8 @@ h.test('cancel, timeout, drop, and stale timers clean up the correct training se
     handle.net('qbmdt:server:startWeaponLicence', 40)
     oldTimer.callback()
     fireRounds(40, 1, Config.mdt.weaponLicence.shots)
-    h.assertTrue(latestAuthorization(40) ~= nil, 'old timer must not clear replacement state')
+    h.assertEqual(handle.eventsNamed('qbmdt:client:weaponLicenceResult', 40)[2].args[1], true,
+        'old timer must not clear replacement state')
 
     start(41)
     handle.timeouts[#handle.timeouts].callback()

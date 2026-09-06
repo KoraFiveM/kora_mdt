@@ -25,6 +25,44 @@ local function near(src, coords, distance)
     local ped = GetPlayerPed(src)
     return ped and ped ~= 0 and #(GetEntityCoords(ped) - vector3(coords.x, coords.y, coords.z)) <= distance
 end
+local function weaponLicenceZoneHeight()
+    local zone, lowest = C.weaponLicence.zone, math.huge
+    for _, point in ipairs(zone.points) do lowest = math.min(lowest, point.z) end
+    return lowest, lowest + zone.thickness
+end
+local function pointInWeaponLicenceZone(coords, padding)
+    local zone = C.weaponLicence.zone
+    padding = padding or 0.0
+    local minZ, maxZ = weaponLicenceZoneHeight()
+    if coords.z < minZ - padding or coords.z > maxZ + padding then return false end
+
+    local inside, previous = false, zone.points[#zone.points]
+    for _, point in ipairs(zone.points) do
+        if (point.y > coords.y) ~= (previous.y > coords.y)
+            and coords.x < (previous.x - point.x) * (coords.y - point.y) / (previous.y - point.y) + point.x then
+            inside = not inside
+        end
+        previous = point
+    end
+    if inside or padding == 0 then return inside end
+
+    local paddingSq = padding * padding
+    previous = zone.points[#zone.points]
+    for _, point in ipairs(zone.points) do
+        local dx, dy = point.x - previous.x, point.y - previous.y
+        local lengthSq = dx * dx + dy * dy
+        local t = lengthSq > 0 and math.max(0, math.min(1, ((coords.x - previous.x) * dx + (coords.y - previous.y) * dy) / lengthSq)) or 0
+        local nearestX, nearestY = previous.x + t * dx, previous.y + t * dy
+        local nearX, nearY = coords.x - nearestX, coords.y - nearestY
+        if nearX * nearX + nearY * nearY <= paddingSq then return true end
+        previous = point
+    end
+    return false
+end
+local function nearWeaponLicenceZone(src, padding)
+    local ped = GetPlayerPed(src)
+    return ped and ped ~= 0 and pointInWeaponLicenceZone(GetEntityCoords(ped), padding)
+end
 local function licenseNumber(cid)
     local row = QB.sql.single('SELECT `licence_number` FROM `qbmdt_licences` WHERE `citizenid` = ? AND `licence_type` = ?', { cid, 'weapon' })
     return row and row.licence_number or nil
@@ -152,7 +190,14 @@ end
 
 QB.events.register('qbmdt:server:open', function(src)
     local userRole = role(src)
-    if userRole then TriggerClientEvent('qbmdt:client:open', src, userRole) end
+    if not userRole then
+        return QB.notify.send(src, {
+            title = 'MDT',
+            message = 'You must be on duty as police, EMS, or a judge to use the MDT.',
+            type = 'error',
+        })
+    end
+    TriggerClientEvent('qbmdt:client:open', src, userRole)
 end, { rateLimit = { max = 4, window = 2000 } })
 QB.events.register('qbmdt:server:beginAnalysis', function(src, caseId)
     if not can(src, 'police') or type(caseId) ~= 'string' then return end
@@ -232,7 +277,7 @@ local function stillEligible(src, state)
     return state.expiresAt >= GetGameTimer()
         and state.citizenid == citizenId(src)
         and state.bucket == GetPlayerRoutingBucket(src)
-        and near(src, C.weaponLicence.range, C.weaponLicence.interactionDistance + 3.0)
+        and nearWeaponLicenceZone(src)
 end
 
 local function beginQualification(src, state)
@@ -245,11 +290,19 @@ local function beginQualification(src, state)
 end
 
 QB.events.register('qbmdt:server:startWeaponLicence', function(src)
-    if training[src] or not near(src, C.weaponLicence.range, C.weaponLicence.interactionDistance) then return end
+    if training[src] then
+        return QB.notify.send(src, { title = 'Weapon licence', message = 'A range session is already in progress.', type = 'error' })
+    end
+    if not nearWeaponLicenceZone(src, C.weaponLicence.interactionDistance) then
+        return QB.notify.send(src, { title = 'Weapon licence', message = 'Move closer to the range marker.', type = 'error' })
+    end
 
     local cid = citizenId(src)
     local bucket = GetPlayerRoutingBucket(src)
-    if not cid or hasWeaponLicense(src) then return end
+    if not cid then return end
+    if hasWeaponLicense(src) then
+        return QB.notify.send(src, { title = 'Weapon licence', message = 'You already hold a weapon licence.', type = 'error' })
+    end
 
     local current = GetGameTimer()
     local state = {
@@ -270,6 +323,7 @@ QB.events.register('qbmdt:server:startWeaponLicence', function(src)
         range = C.weaponLicence.range,
         targetOffsets = C.weaponLicence.targetOffsets,
         shots = C.weaponLicence.shots,
+        weapon = C.weaponLicence.weapon,
     })
     SetTimeout(C.weaponLicence.trainingTimeout, function()
         if training[src] == state then finishTraining(src, state, false) end
@@ -283,7 +337,10 @@ AddEventHandler('qbinventory:server:trainingRoundFired', function(src, round)
     if not stillEligible(src, state) then return finishTraining(src, state, false) end
 
     state.shots = round.shot
-    if state.shots >= C.weaponLicence.shots then beginQualification(src, state) end
+    -- The range test is the live-fire exercise.  Once every issued training
+    -- round has been fired, finish it immediately instead of making a target
+    -- hit look like a failure because of a separate handling minigame.
+    if state.shots >= C.weaponLicence.shots then finishTraining(src, state, true) end
 end)
 
 QB.events.register('qbmdt:server:completeWeaponLicence', function(src, proof)

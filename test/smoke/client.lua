@@ -9,12 +9,13 @@ function _G.vector4(x, y, z, w)
     return value
 end
 
-local handlers, serverEvents, removed = {}, {}, {}
+local handlers, commands, serverEvents, removed, licenceZone = {}, {}, {}, {}, nil
 local entityFactory = function() return 900 end
 local minigameResult = { success = false }
 
 function _G.RegisterNetEvent(name, callback) if callback then handlers[name] = callback end end
-function _G.RegisterCommand() end
+function _G.RegisterCommand(name, callback) commands[name] = callback end
+function _G.CreateThread() end
 _G.QB = {
     nui = {
         openInputDialog = function() return nil end,
@@ -36,7 +37,7 @@ _G.QB = {
 
 local exportImpls = {
     qbtarget = {
-        addSphereZone = function() end,
+        addPolyZone = function(options) licenceZone = options end,
         addEntity = function() end,
     },
     qblib = {
@@ -66,6 +67,7 @@ local function settings()
         range = Config.mdt.weaponLicence.range,
         targetOffsets = Config.mdt.weaponLicence.targetOffsets,
         shots = Config.mdt.weaponLicence.shots,
+        weapon = Config.mdt.weaponLicence.weapon,
     }
 end
 
@@ -81,6 +83,42 @@ h.test('client contains no hit-coordinate reporting path', function()
     file:close()
     h.assertTrue(source:find('qbmdt:server:weaponLicenceHit', 1, true) == nil)
     h.assertTrue(source:find('GetPedLastWeaponImpactCoord', 1, true) == nil)
+end)
+
+local function contains(points, coords)
+    local inside, previous = false, points[#points]
+    for _, point in ipairs(points) do
+        if (point.y > coords.y) ~= (previous.y > coords.y)
+            and coords.x < (previous.x - point.x) * (coords.y - point.y) / (previous.y - point.y) + point.x then
+            inside = not inside
+        end
+        previous = point
+    end
+    return inside
+end
+
+h.test('weapon licence target covers the Ammu-Nation building and every firing target', function()
+    local definition = Config.mdt.weaponLicence
+    local minZ = math.huge
+    for _, point in ipairs(definition.zone.points) do minZ = math.min(minZ, point.z) end
+    local maxZ = minZ + definition.zone.thickness
+    h.assertEqual(licenceZone.points, definition.zone.points)
+    h.assertEqual(licenceZone.thickness, definition.zone.thickness)
+    h.assertEqual(licenceZone.distance, definition.interactionDistance)
+    h.assertTrue(contains(licenceZone.points, definition.range), 'the counter marker must be inside the target zone')
+    for index, offset in ipairs(definition.targetOffsets) do
+        local target = vector3(definition.range.x + offset.x, definition.range.y + offset.y, definition.range.z + offset.z)
+        h.assertTrue(contains(licenceZone.points, target), ('target %d must be inside the building target zone'):format(index))
+        h.assertTrue(target.z >= minZ and target.z <= maxZ,
+            ('target %d must be inside the building height band'):format(index))
+    end
+end)
+
+h.test('/mdt enters through the authenticated qblib event channel', function()
+    reset()
+    commands[Config.mdt.command]()
+    h.assertEqual(#serverEvents, 1)
+    h.assertEqual(serverEvents[1].name, 'qbmdt:server:open')
 end)
 
 h.test('zero spawned range targets cancels the server session', function()

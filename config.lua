@@ -20,6 +20,24 @@ Config.mdt = {
         targetModel = 'prop_target_blue_arrow',
         targetHeading = 180.0,
         range = vector3(22.5, -1104.5, 29.8),
+        -- The Ammu-Nation-with-range interior.  Keep this footprint in sync
+        -- with the mapped building, rather than limiting the test to a small
+        -- circle by the counter: the firing lanes and their targets are at
+        -- the north end of the same building.
+        zone = {
+            points = {
+                vector3(20.61, -1116.66, 28.99),
+                vector3(25.83, -1105.59, 31.73),
+                vector3(18.55, -1102.30, 30.45),
+                vector3(29.50, -1071.96, 29.84),
+                vector3(18.90, -1068.10, 29.94),
+                vector3(16.88, -1069.09, 29.53),
+                vector3(2.52, -1108.76, 30.46),
+                vector3(13.96, -1113.49, 31.19),
+                vector3(14.04, -1114.59, 29.30),
+            },
+            thickness = 4.0,
+        },
         interactionDistance = 2.0,
         shots = 10,
         trainingTimeout = 120000,
@@ -28,7 +46,8 @@ Config.mdt = {
             opts = { attempts = 1, zoneSize = 0.14, timeLimit = 8000 },
         },
         targetOffsets = {
-            vector3(0.0, 12.0, 0.0), vector3(-2.0, 14.0, 0.4), vector3(2.0, 16.0, -0.2),
+            -- The range runs diagonally through the configured building poly.
+            vector3(-4.0, 12.0, 0.0), vector3(-3.0, 14.0, 0.4), vector3(-2.0, 16.0, -0.2),
         },
     },
     analysis = {
