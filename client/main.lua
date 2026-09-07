@@ -32,12 +32,6 @@ end
 local function notify(message, kind)
     QB.notify.send({ title = 'MDT', message = message, type = kind or 'info' })
 end
-local function lines(records, formatter)
-    local out = {}
-    for _, row in ipairs(records or {}) do out[#out + 1] = formatter(row) end
-    return #out > 0 and table.concat(out, '\n') or 'None on file.'
-end
-
 local function openTerminal(role)
     if role ~= 'police' and role ~= 'medical' and role ~= 'judge' then return end
 
@@ -45,14 +39,17 @@ local function openTerminal(role)
     local hasMedicalRecords = role == 'medical' or role == 'judge'
     local hasPoliceTools = role == 'police' or role == 'judge'
     local lookupActions = {
-        { id = 'person', label = hasMedicalRecords and not hasCriminalRecords and 'Patient lookup' or 'Person & licence lookup', icon = 'contact' },
+        { id = 'person', label = hasMedicalRecords and not hasCriminalRecords and 'Patient lookup' or 'Person & licence lookup', icon = 'contact',
+            fields = { { id = 'citizenid', label = 'Citizen ID', type = 'text', required = true } } },
     }
     local navigation = {}
 
     if hasPoliceTools then
-        lookupActions[#lookupActions + 1] = { id = 'vehicle', label = 'Vehicle lookup', icon = 'car-front' }
+        lookupActions[#lookupActions + 1] = { id = 'vehicle', label = 'Vehicle lookup', icon = 'car-front',
+            fields = { { id = 'plate', label = 'Plate', type = 'text', required = true, maxLength = 12 } } }
         lookupActions[#lookupActions + 1] = { id = 'charges', label = 'Available charges', icon = 'scale' }
-        lookupActions[#lookupActions + 1] = { id = 'firearm', label = 'Firearm registration lookup', icon = 'crosshair' }
+        lookupActions[#lookupActions + 1] = { id = 'firearm', label = 'Firearm registration lookup', icon = 'crosshair',
+            fields = { { id = 'serial', label = 'Gun serial number', type = 'text', required = true } } }
     end
 
     navigation[#navigation + 1] = {
@@ -63,8 +60,13 @@ local function openTerminal(role)
         navigation[#navigation + 1] = {
             id = 'criminal-records', label = 'Criminal records', icon = 'files',
             content = { title = 'Criminal records', blocks = { { type = 'actions', actions = {
-                { id = 'criminal', label = 'Add criminal record', icon = 'file-plus' },
-                { id = 'analysis', label = 'Analyse ballistic casing', icon = 'microscope' },
+                { id = 'criminal', label = 'Add criminal record', icon = 'file-plus', fields = {
+                    { id = 'citizenid', label = 'Citizen ID', type = 'text', required = true },
+                    { id = 'charge', label = 'Charge code', type = 'text', required = true },
+                    { id = 'notes', label = 'Notes', type = 'textarea', maxLength = 1000 },
+                } },
+                { id = 'analysis', label = 'Analyse ballistic casing', icon = 'microscope', closeBeforeAction = true,
+                    fields = { { id = 'caseid', label = 'Casing case ID', type = 'text', required = true } } },
             } } } },
         }
     end
@@ -72,8 +74,27 @@ local function openTerminal(role)
         navigation[#navigation + 1] = {
             id = 'medical-records', label = 'Medical records', icon = 'heart-pulse',
             content = { title = 'Medical records', blocks = { { type = 'actions', actions = {
-                { id = 'medical', label = 'Add medical record', icon = 'file-plus' },
+                { id = 'medical', label = 'Add medical record', icon = 'file-plus', fields = {
+                    { id = 'citizenid', label = 'Citizen ID', type = 'text', required = true },
+                    { id = 'notes', label = 'Treatment / notes', type = 'textarea', required = true, maxLength = 1000 },
+                } },
             } } } },
+        }
+    end
+
+    local resultView = {
+        id = 'results', label = 'Results', icon = 'file-search',
+        content = { title = 'Lookup results', blocks = { { type = 'empty', title = 'No result selected',
+            description = 'Run a lookup to open its structured record here.', icon = 'search' } } },
+    }
+    navigation[#navigation + 1] = resultView
+
+    local function showResult(content, notice)
+        resultView.content = content
+        return {
+            update = { navigation = navigation },
+            navigate = { viewId = 'results' },
+            notice = notice,
         }
     end
 
@@ -84,7 +105,8 @@ local function openTerminal(role)
         icon = role == 'medical' and 'heart-pulse' or 'monitor-smartphone',
         navigation = navigation,
         footer = 'Records access is verified by the server.',
-        onAction = function(selectedId)
+        onAction = function(selectedId, context)
+            local input = type(context and context.value) == 'table' and context.value or {}
             if selectedId == 'criminal' or selectedId == 'analysis' then
                 if not hasCriminalRecords then return {} end
             elseif selectedId == 'medical' then
@@ -93,47 +115,68 @@ local function openTerminal(role)
                 if not hasPoliceTools then return {} end
             end
             if selectedId == 'person' then
-        local input = form('Person lookup', { { id = 'citizenid', label = 'Citizen ID', required = true } })
-        if not input then return {} end
         local record, err = QB.callback.trigger('qbmdt:server:person', input.citizenid)
-        if not record then notify(err or 'No record found.', 'error'); return {} end
-        local detail = ('%s\nDriver licence: %s'):format(record.name, record.driverLicensed and 'valid' or 'not held')
-        if record.weaponLicence then detail = detail .. '\nWeapon licence: ' .. record.weaponLicence end
-        if record.firearms then detail = detail .. '\nFirearms:\n' .. lines(record.firearms, function(r) return r.weapon_name .. ' — ' .. r.serial end) end
-        if record.criminal then detail = detail .. '\nCriminal:\n' .. lines(record.criminal, function(r) return r.charge_code .. ': ' .. (r.notes or '') end) end
-        if record.medical then detail = detail .. '\nMedical:\n' .. lines(record.medical, function(r) return r.notes end) end
-        notify(detail)
+        if not record then return { notice = { tone = 'destructive', message = err or 'No record found.' } } end
+        local activity = {}
+        for index, row in ipairs(record.firearms or {}) do activity[#activity + 1] = {
+            id = 'firearm-' .. index, title = row.weapon_name or 'Registered firearm',
+            description = row.serial, icon = 'crosshair', tone = 'primary',
+        } end
+        for index, row in ipairs(record.criminal or {}) do activity[#activity + 1] = {
+            id = 'criminal-' .. index, title = row.charge_code or 'Criminal record',
+            description = row.notes, timestamp = tostring(row.created_at or ''), icon = 'scale', tone = 'warning',
+        } end
+        for index, row in ipairs(record.medical or {}) do activity[#activity + 1] = {
+            id = 'medical-' .. index, title = 'Medical record', description = row.notes,
+            timestamp = tostring(row.created_at or ''), icon = 'heart-pulse', tone = 'success',
+        } end
+        return showResult({ title = record.name or input.citizenid, description = 'Person and licence record', blocks = {
+            { type = 'details', title = 'Identity and licences', columns = 2, items = {
+                { label = 'Citizen ID', value = input.citizenid, icon = 'contact' },
+                { label = 'Driver licence', value = record.driverLicensed and 'Valid' or 'Not held',
+                    tone = record.driverLicensed and 'success' or 'warning' },
+                { label = 'Weapon licence', value = record.weaponLicence or 'Not held', icon = 'shield' },
+            } },
+            { type = 'timeline', title = 'Record history', items = activity, empty = 'No criminal, medical, or firearm records on file.' },
+        } })
     elseif selectedId == 'vehicle' then
-        local input = form('Vehicle lookup', { { id = 'plate', label = 'Plate', required = true } })
-        if not input then return {} end
         local row, err = QB.callback.trigger('qbmdt:server:vehicle', input.plate)
-        notify(row and ('%s — owner %s — %s'):format(row.plate, row.citizenid, row.state) or (err or 'No vehicle found.'), row and 'info' or 'error')
+        if not row then return { notice = { tone = 'destructive', message = err or 'No vehicle found.' } } end
+        return showResult({ title = row.plate, description = 'Vehicle registration', blocks = { {
+            type = 'details', columns = 2, items = {
+                { label = 'Plate', value = row.plate, icon = 'car-front' },
+                { label = 'Owner citizen ID', value = row.citizenid, icon = 'contact' },
+                { label = 'State', value = row.state, tone = row.state == 'out' and 'warning' or 'neutral' },
+            },
+        } } })
     elseif selectedId == 'charges' then
         local rows, err = QB.callback.trigger('qbmdt:server:charges')
-        notify(rows and lines(rows, function(r) return ('%s: %s ($%d)'):format(r.code, r.label, r.fine) end) or (err or 'Not authorised.'), rows and 'info' or 'error')
+        if not rows then return { notice = { tone = 'destructive', message = err or 'Not authorised.' } } end
+        return showResult({ title = 'Available charges', description = 'Search the server-authorised charge catalogue.', blocks = { {
+            type = 'table', id = 'charges', searchable = true, pageSize = 12,
+            columns = { { key = 'code', label = 'Code', sortable = true }, { key = 'label', label = 'Charge', sortable = true },
+                { key = 'fine', label = 'Fine', align = 'right', sortable = true } },
+            rows = rows, empty = 'No charges configured.',
+        } } })
     elseif selectedId == 'criminal' then
-        local input = form('Criminal record', {
-            { id = 'citizenid', label = 'Citizen ID', required = true }, { id = 'charge', label = 'Charge code', required = true },
-            { id = 'notes', label = 'Notes', type = 'textarea' },
-        })
-        if not input then return {} end
         local ok, err = QB.callback.trigger('qbmdt:server:addCriminal', input.citizenid, input.charge, input.notes)
-        notify(ok and 'Criminal record saved.' or (err or 'Could not save record.'), ok and 'success' or 'error')
+        return { notice = { tone = ok and 'success' or 'destructive', message = ok and 'Criminal record saved.' or (err or 'Could not save record.') } }
     elseif selectedId == 'medical' then
-        local input = form('Medical record', {
-            { id = 'citizenid', label = 'Citizen ID', required = true }, { id = 'notes', label = 'Treatment / notes', type = 'textarea', required = true },
-        })
-        if not input then return {} end
         local ok, err = QB.callback.trigger('qbmdt:server:addMedical', input.citizenid, input.notes)
-        notify(ok and 'Medical record saved.' or (err or 'Could not save record.'), ok and 'success' or 'error')
+        return { notice = { tone = ok and 'success' or 'destructive', message = ok and 'Medical record saved.' or (err or 'Could not save record.') } }
     elseif selectedId == 'analysis' then
-        local input = form('Ballistic analysis', { { id = 'caseid', label = 'Casing case ID', required = true } })
-        if input then QB.events.trigger('qbmdt:server:beginAnalysis', input.caseid) end
+        QB.events.trigger('qbmdt:server:beginAnalysis', input.caseid)
+        return { notice = { tone = 'primary', message = 'Ballistic analysis started.' } }
     elseif selectedId == 'firearm' then
-        local input = form('Firearm registration', { { id = 'serial', label = 'Gun serial number', required = true } })
-        if not input then return {} end
         local row, err = QB.callback.trigger('qbmdt:server:shopFirearm', input.serial)
-        notify(row and ('%s — owner %s — licence %s'):format(row.weapon_name, row.owner_citizenid, row.licence_number) or (err or 'No registered sale found.'), row and 'info' or 'error')
+        if not row then return { notice = { tone = 'destructive', message = err or 'No registered sale found.' } } end
+        return showResult({ title = row.weapon_name or input.serial, description = 'Registered firearm sale', blocks = { {
+            type = 'details', columns = 2, items = {
+                { label = 'Serial', value = input.serial, icon = 'crosshair' },
+                { label = 'Owner citizen ID', value = row.owner_citizenid, icon = 'contact' },
+                { label = 'Licence number', value = row.licence_number or 'Not recorded', icon = 'shield' },
+            },
+        } } })
     end
     return {}
         end,
