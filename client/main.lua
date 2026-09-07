@@ -69,7 +69,7 @@ RegisterNetEvent('qbmdt:client:weaponLicenceStart', function(settings)
             if not isInsideWeaponLicenceZone(position) then
                 -- Remove the temporary weapon locally at once, then end the
                 -- server-owned session so its inventory state is released too.
-                RemoveWeaponFromPed(QB.cache.ped(), GetHashKey(trainingWeapon))
+                RemoveWeaponFromPed(QB.cache.ped(), joaat(trainingWeapon))
                 QB.events.trigger('qbmdt:server:cancelWeaponLicence')
                 return notify('You left Ammu-Nation. The range weapon was removed.', 'error')
             end
