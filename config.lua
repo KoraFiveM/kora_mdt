@@ -73,3 +73,6 @@ Config.mdt = {
         { code = 'VEH-01', label = 'Reckless driving', fine = 750 },
     },
 }
+
+-- Registers this resource-owned configuration with qblib without changing its public Config table.
+if QB and QB.config and QB.config.adopt then Config = QB.config.adopt(Config) end

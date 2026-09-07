@@ -127,7 +127,7 @@ for _, record in ipairs(C.firearms.shopRecords) do
         record.coords.x, record.coords.y, record.coords.z - 1.0, record.coords.w
     ), { preset = 'static' })
     if clerk then exports.qbtarget:addEntity(clerk, { { label = record.label, icon = 'file-search', onSelect = function()
-            local input = form(record.label, { { id = 'serial', label = 'Gun serial number', required = true } })
+            local input = form(record.label, { { id = 'serial', label = 'Gun serial number', type = 'text', required = true } })
             if not input then return end
             local row, err = QB.callback.trigger('qbmdt:server:shopFirearm', input.serial)
             notify(row and ('%s — owner %s'):format(row.weapon_name, row.owner_citizenid) or (err or 'No record found.'), row and 'info' or 'error')

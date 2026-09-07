@@ -10,6 +10,7 @@ function _G.vector4(x, y, z, w)
 end
 
 local handlers, commands, serverEvents, removed, licenceZone = {}, {}, {}, {}, nil
+local recordsClerkOption, inputDialog
 local registeredApp, openedApp
 local entityFactory = function() return 900 end
 local minigameResult = { success = false }
@@ -19,7 +20,10 @@ function _G.RegisterCommand(name, callback) commands[name] = callback end
 function _G.CreateThread() end
 _G.QB = {
     nui = {
-        openInputDialog = function() return nil end,
+        openInputDialog = function(fields, title)
+            inputDialog = { fields = fields, title = title }
+            return nil
+        end,
         registerApp = function(definition) registeredApp = definition end,
         openApp = function(id) openedApp = id end,
     },
@@ -44,7 +48,7 @@ _G.QB = {
 local exportImpls = {
     qbtarget = {
         addPolyZone = function(options) licenceZone = options end,
-        addEntity = function() end,
+        addEntity = function(_, options) recordsClerkOption = options[1] end,
     },
     qblib = {
         minigames_play = function() return minigameResult end,
@@ -142,6 +146,15 @@ h.test('police terminal exposes operational views with interactive tables', func
     h.assertEqual(byId.cases.content.blocks[2].action, 'case:select')
     h.assertEqual(byId.warrants.content.blocks[2].action, 'warrant:select')
     h.assertEqual(byId.bolos.content.blocks[2].action, 'bolo:select')
+end)
+
+h.test('Ammu-Nation records clerk opens a typed serial-number field', function()
+    inputDialog = nil
+    recordsClerkOption.onSelect()
+    h.assertEqual(inputDialog.title, Config.mdt.firearms.shopRecords[1].label)
+    h.assertEqual(inputDialog.fields[1].id, 'serial')
+    h.assertEqual(inputDialog.fields[1].type, 'text')
+    h.assertTrue(inputDialog.fields[1].required)
 end)
 
 h.test('zero spawned range targets cancels the server session', function()
