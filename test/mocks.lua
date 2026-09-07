@@ -17,6 +17,10 @@ function M.install()
         evidence = {},
         ballisticCasings = {},
         sqlWrites = 0,
+        sqlInserts = {},
+        sqlUpdates = {},
+        sqlSingle = nil,
+        sqlQuery = nil,
         clock = 0,
         startTrainingResult = true,
         startTrainingError = nil,
@@ -143,19 +147,31 @@ function M.install()
         },
         sql = {
             single = function(query, params)
+                if handle.sqlSingle then return handle.sqlSingle(query, params) end
                 if query:find('qbmdt_licences', 1, true) then
                     local number = handle.licenceRows[params[1]]
                     return number and { licence_number = number } or nil
                 end
                 return nil
             end,
-            query = function() return {} end,
+            query = function(query, params)
+                if handle.sqlQuery then return handle.sqlQuery(query, params) end
+                return {}
+            end,
             execute = function(query, params)
                 if query:find('qbmdt_licences', 1, true) then
                     handle.sqlWrites = handle.sqlWrites + 1
                     if handle.onLicenceWrite then handle.onLicenceWrite(params) end
                     handle.licenceRows[params[1]] = params[3]
                 end
+                return 1
+            end,
+            insert = function(query, params)
+                handle.sqlInserts[#handle.sqlInserts + 1] = { query = query, params = params }
+                return #handle.sqlInserts
+            end,
+            update = function(query, params)
+                handle.sqlUpdates[#handle.sqlUpdates + 1] = { query = query, params = params }
                 return 1
             end,
         },

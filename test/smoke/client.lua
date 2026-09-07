@@ -10,6 +10,7 @@ function _G.vector4(x, y, z, w)
 end
 
 local handlers, commands, serverEvents, removed, licenceZone = {}, {}, {}, {}, nil
+local registeredApp, openedApp
 local entityFactory = function() return 900 end
 local minigameResult = { success = false }
 
@@ -19,11 +20,16 @@ function _G.CreateThread() end
 _G.QB = {
     nui = {
         openInputDialog = function() return nil end,
-        registerApp = function() end,
-        openApp = function() end,
+        registerApp = function(definition) registeredApp = definition end,
+        openApp = function(id) openedApp = id end,
     },
     notify = { send = function() end },
-    callback = { trigger = function() return nil end },
+    callback = { trigger = function(name)
+        if name == 'qbmdt:server:dashboard' then return { recent = {} } end
+        if name == 'qbmdt:server:reports' or name == 'qbmdt:server:cases'
+            or name == 'qbmdt:server:warrants' or name == 'qbmdt:server:bolos' then return {} end
+        return nil
+    end },
     events = {
         trigger = function(name, ...)
             serverEvents[#serverEvents + 1] = { name = name, args = { ... } }
@@ -58,6 +64,7 @@ _G.exports = setmetatable({}, {
 })
 
 dofile('config.lua')
+dofile('client/terminal.lua')
 dofile('client/main.lua')
 
 local function settings()
@@ -119,6 +126,22 @@ h.test('/mdt enters through the authenticated qblib event channel', function()
     commands[Config.mdt.command]()
     h.assertEqual(#serverEvents, 1)
     h.assertEqual(serverEvents[1].name, 'qbmdt:server:open')
+end)
+
+h.test('police terminal exposes operational views with interactive tables', function()
+    reset()
+    handlers['qbmdt:client:open']('police')
+    h.assertEqual(openedApp, 'qbmdt:terminal')
+    h.assertEqual(registeredApp.navigation[1].id, 'dashboard')
+    local byId = {}
+    for _, view in ipairs(registeredApp.navigation) do byId[view.id] = view end
+    for _, id in ipairs({ 'search', 'reports', 'cases', 'warrants', 'bolos', 'tools', 'results' }) do
+        h.assertTrue(byId[id] ~= nil, id .. ' view must be present')
+    end
+    h.assertEqual(byId.reports.content.blocks[2].action, 'report:select')
+    h.assertEqual(byId.cases.content.blocks[2].action, 'case:select')
+    h.assertEqual(byId.warrants.content.blocks[2].action, 'warrant:select')
+    h.assertEqual(byId.bolos.content.blocks[2].action, 'bolo:select')
 end)
 
 h.test('zero spawned range targets cancels the server session', function()

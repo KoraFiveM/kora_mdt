@@ -35,6 +35,10 @@ local function resetObservations()
     handle.consumes = {}
     handle.metadataWrites = {}
     handle.sqlWrites = 0
+    handle.sqlInserts = {}
+    handle.sqlUpdates = {}
+    handle.sqlSingle = nil
+    handle.sqlQuery = nil
     handle.startTrainingResult = true
     handle.startTrainingError = nil
     handle.authorizeEnabled = true
@@ -78,6 +82,76 @@ h.test('MDT open returns the authorised role and explains access denial', functi
     h.assertEqual(#handle.notifications, 1)
     h.assertEqual(handle.notifications[1].src, 91)
     h.assertEqual(handle.notifications[1].payload.type, 'error')
+end)
+
+h.test('operational callbacks are role-gated and citizen searches are bounded', function()
+    resetObservations()
+    handle.ensurePlayer(92, { job = { name = 'ambulance', onduty = true } })
+    local search = QB.callback.registry['qbmdt:server:searchVehicles']
+    local rows, err = search(92, 'ABC')
+    h.assertEqual(rows, nil)
+    h.assertEqual(err, 'not authorised')
+
+    handle.ensurePlayer(93)
+    rows, err = QB.callback.registry['qbmdt:server:searchPeople'](93, 'x')
+    h.assertEqual(rows, nil)
+    h.assertEqual(err, 'enter at least two characters')
+    local captured
+    handle.sqlQuery = function(query, params) captured = { query = query, params = params }; return {} end
+    rows = QB.callback.registry['qbmdt:server:searchPeople'](93, 'Jane_20%')
+    h.assertEqual(#rows, 0)
+    h.assertTrue(captured.query:find('LIMIT 25', 1, true) ~= nil, 'search limit must be server-owned')
+    h.assertEqual(captured.params[1], 'Jane_20%', 'search input must stay a bound parameter rather than SQL syntax')
+end)
+
+h.test('incident reports validate server records, create charge history, and audit', function()
+    resetObservations()
+    handle.ensurePlayer(94)
+    handle.sqlSingle = function(query, params)
+        if query:find('FROM `players`', 1, true) then return { citizenid = params[1] } end
+        if query:find('FROM `qbmdt_charges`', 1, true) and params[1] == 'SPD-01' then return { code = 'SPD-01' } end
+    end
+    local create = QB.callback.registry['qbmdt:server:createReport']
+    local id, err = create(94, { title = 'Traffic stop', narrative = 'Vehicle failed to stop.', citizenid = 'CID000777', charge = 'bad' })
+    h.assertEqual(id, nil)
+    h.assertEqual(err, 'unknown charge')
+
+    id, err = create(94, { title = 'Traffic stop', narrative = 'Vehicle failed to stop.', citizenid = 'CID000777', charge = 'spd-01' })
+    h.assertEqual(id, 1)
+    h.assertEqual(handle.sqlInserts[1].params[4], 'SPD-01')
+    h.assertTrue(handle.sqlInserts[2].query:find('qbmdt_criminal_records', 1, true) ~= nil,
+        'charged report must be reflected in criminal history')
+    h.assertTrue(handle.sqlInserts[3].query:find('qbmdt_audit_log', 1, true) ~= nil,
+        'report creation must be audited')
+end)
+
+h.test('warrant and BOLO state changes use server-owned transitions and audit', function()
+    resetObservations()
+    handle.ensurePlayer(95)
+    handle.sqlSingle = function(query, params)
+        if query:find('FROM `players`', 1, true) then return { citizenid = params[1] } end
+    end
+    local warrantId = QB.callback.registry['qbmdt:server:createWarrant'](95,
+        { citizenid = 'CID000777', reason = 'Signed probable cause', days = 999 })
+    h.assertEqual(warrantId, 1)
+    h.assertEqual(handle.sqlInserts[1].params[4], Config.mdt.operations.warrantMaxDays)
+
+    local ok = QB.callback.registry['qbmdt:server:closeWarrant'](95, warrantId, 'served')
+    h.assertTrue(ok)
+    h.assertEqual(handle.sqlUpdates[1].params[1], 'served')
+    local invalid, err = QB.callback.registry['qbmdt:server:closeWarrant'](95, warrantId, 'deleted')
+    h.assertFalse(invalid)
+    h.assertEqual(err, 'invalid warrant action')
+
+    local boloId = QB.callback.registry['qbmdt:server:createBolo'](95, {
+        subject_type = 'vehicle', identifier = 'abc 123', title = 'Felony vehicle',
+        description = 'Stop and detain occupants.', days = 2,
+    })
+    h.assertTrue(boloId ~= nil)
+    local boloInsert = handle.sqlInserts[#handle.sqlInserts - 1]
+    h.assertEqual(boloInsert.params[2], 'ABC 123')
+    ok = QB.callback.registry['qbmdt:server:resolveBolo'](95, boloId)
+    h.assertTrue(ok)
 end)
 
 h.test('weapon licence start enforces distance, existing licence, active state, and inventory failure', function()

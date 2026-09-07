@@ -4,7 +4,7 @@ lua54 'yes'
 
 name 'qbmdt'
 author 'qbcore2'
-version '0.1.0'
+version '0.2.0'
 description 'Role-gated police, court, and medical records terminal'
 
 dependency 'qblib'
@@ -21,4 +21,4 @@ shared_scripts {
 }
 
 server_scripts { 'server/migrate.lua', 'server/main.lua' }
-client_scripts { 'client/main.lua' }
+client_scripts { 'client/terminal.lua', 'client/main.lua' }

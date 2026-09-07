@@ -58,6 +58,14 @@ Config.mdt = {
             { game = 'pinpad', opts = { attempts = 1 } },                   -- registry confirmation; PIN is generated server-side
         },
     },
+    operations = {
+        searchLimit = 25,
+        recentLimit = 50,
+        warrantDefaultDays = 7,
+        warrantMaxDays = 30,
+        boloDefaultDays = 7,
+        boloMaxDays = 30,
+    },
     charges = {
         { code = 'SPD-01', label = 'Speeding', fine = 250 },
         { code = 'WPN-01', label = 'Unlawful discharge of a firearm', fine = 1500 },

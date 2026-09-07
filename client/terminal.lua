@@ -1,0 +1,468 @@
+local C = Config.mdt
+
+local function action(id, label, icon, fields, variant)
+    return { id = id, label = label, icon = icon, fields = fields, variant = variant }
+end
+
+local function message(ok, success, failure)
+    return { notice = { tone = ok and 'success' or 'destructive', message = ok and success or (failure or 'The action failed.') } }
+end
+
+local function statusCell(value)
+    local tone = 'neutral'
+    if value == 'active' or value == 'open' or value == 'investigating' or value == 'high' or value == 'critical' then
+        tone = 'warning'
+    elseif value == 'closed' or value == 'served' or value == 'resolved' then
+        tone = 'success'
+    end
+    return { label = tostring(value or 'unknown'), badge = true, tone = tone }
+end
+
+local function openTerminal(role)
+    if role ~= 'police' and role ~= 'medical' and role ~= 'judge' then return end
+
+    local criminalAccess = role == 'police' or role == 'judge'
+    local medicalAccess = role == 'medical' or role == 'judge'
+    local policeAccess = criminalAccess
+    local navigation = {}
+    local selectedReport, selectedCase, selectedWarrant, selectedBolo
+
+    local resultView = {
+        id = 'results', label = 'Record', icon = 'file-search',
+        content = { title = 'Record viewer', blocks = { { type = 'empty', title = 'No record selected',
+            description = 'Search for a person, vehicle, report, warrant, or BOLO.', icon = 'search' } } },
+    }
+
+    local function findView(id)
+        for _, view in ipairs(navigation) do if view.id == id then return view end end
+    end
+
+    local function update(viewId, content, notice)
+        local view = findView(viewId)
+        if view and content then view.content = content end
+        return { update = { navigation = navigation }, navigate = { viewId = viewId }, notice = notice }
+    end
+
+    local function showResult(content, notice)
+        resultView.content = content
+        return update('results', nil, notice)
+    end
+
+    local function personContent(record)
+        local activity = {}
+        for _, row in ipairs(record.warrants or {}) do activity[#activity + 1] = {
+            id = 'warrant-' .. row.id, title = 'Active warrant #' .. row.id, description = row.reason,
+            timestamp = tostring(row.expires_at or ''), icon = 'gavel', tone = 'destructive',
+        } end
+        for _, row in ipairs(record.bolos or {}) do activity[#activity + 1] = {
+            id = 'bolo-' .. row.id, title = 'Active BOLO: ' .. row.title, description = row.description,
+            timestamp = tostring(row.expires_at or ''), icon = 'siren', tone = 'warning',
+        } end
+        for _, row in ipairs(record.reports or {}) do activity[#activity + 1] = {
+            id = 'report-' .. row.id, title = ('Report #%s · %s'):format(row.id, row.title),
+            description = row.status, timestamp = tostring(row.created_at or ''), icon = 'file-text',
+        } end
+        for index, row in ipairs(record.firearms or {}) do activity[#activity + 1] = {
+            id = 'firearm-' .. index, title = row.weapon_name or 'Registered firearm',
+            description = row.serial, timestamp = tostring(row.purchased_at or ''), icon = 'crosshair', tone = 'primary',
+        } end
+        for index, row in ipairs(record.criminal or {}) do activity[#activity + 1] = {
+            id = 'criminal-' .. index, title = row.charge_code or 'Criminal record',
+            description = row.notes, timestamp = tostring(row.created_at or ''), icon = 'scale', tone = 'warning',
+        } end
+        for index, row in ipairs(record.medical or {}) do activity[#activity + 1] = {
+            id = 'medical-' .. index, title = 'Medical record', description = row.notes,
+            timestamp = tostring(row.created_at or ''), icon = 'heart-pulse', tone = 'success',
+        } end
+        return {
+            title = record.name or record.citizenid, description = 'Citizen profile and linked MDT history',
+            blocks = {
+                { type = 'details', title = 'Identity', columns = 2, items = {
+                    { label = 'Citizen ID', value = record.citizenid, icon = 'contact' },
+                    { label = 'Phone', value = record.phone or 'Not recorded', icon = 'phone' },
+                    { label = 'Date of birth', value = record.birthdate or 'Not recorded' },
+                    { label = 'Nationality', value = record.nationality or 'Not recorded' },
+                    { label = 'Occupation', value = record.job or 'Unemployed' },
+                    { label = 'Driver licence', value = record.driverLicensed and 'Valid' or 'Not held', tone = record.driverLicensed and 'success' or 'warning' },
+                    { label = 'Weapon licence', value = record.weaponLicence or 'Not held', icon = 'shield' },
+                } },
+                { type = 'timeline', title = 'Linked records and alerts', items = activity, empty = 'No linked records.' },
+            },
+        }
+    end
+
+    local function openPerson(citizenid)
+        local record, err = QB.callback.trigger('qbmdt:server:person', citizenid)
+        if not record then return message(false, nil, err or 'Citizen not found.') end
+        return showResult(personContent(record))
+    end
+
+    local function openVehicle(plate)
+        local row, err = QB.callback.trigger('qbmdt:server:vehicle', plate)
+        if not row then return message(false, nil, err or 'Vehicle not found.') end
+        local alerts = {}
+        for _, bolo in ipairs(row.bolos or {}) do alerts[#alerts + 1] = {
+            id = 'vehicle-bolo-' .. bolo.id, title = bolo.title, description = bolo.description,
+            timestamp = tostring(bolo.expires_at or ''), icon = 'siren', tone = 'destructive',
+        } end
+        return showResult({ title = row.plate, description = row.model or 'Vehicle registration', blocks = {
+            { type = 'details', title = 'Registration', columns = 2, items = {
+                { label = 'Plate', value = row.plate, icon = 'car-front' },
+                { label = 'Model', value = row.model or 'Unknown' },
+                { label = 'Owner', value = row.owner_name or row.citizenid or 'State / unowned', icon = 'contact' },
+                { label = 'Citizen ID', value = row.citizenid or '—' },
+                { label = 'State', value = row.state or 'unknown', tone = row.state == 'out' and 'warning' or 'neutral' },
+                { label = 'Garage / lot', value = row.impound_lot or row.garage_id or '—' },
+            } },
+            { type = 'timeline', title = 'Active BOLOs', items = alerts, empty = 'No active BOLO for this vehicle.' },
+        } })
+    end
+
+    local peopleFields = { { id = 'query', label = 'Name, citizen ID, or phone', type = 'text', required = true, minLength = 2, maxLength = 64 } }
+    local lookupActions = { action('person:search', medicalAccess and not criminalAccess and 'Search patients' or 'Search citizens', 'users', peopleFields) }
+    if policeAccess then
+        lookupActions[#lookupActions + 1] = action('vehicle:search', 'Search vehicles', 'car-front', {
+            { id = 'query', label = 'Plate, model, owner, or citizen ID', type = 'text', required = true, minLength = 2, maxLength = 64 },
+        })
+        lookupActions[#lookupActions + 1] = action('charges:list', 'Penal code', 'scale')
+        lookupActions[#lookupActions + 1] = action('firearm:search', 'Firearm registry', 'crosshair', {
+            { id = 'serial', label = 'Serial number', type = 'text', required = true, maxLength = 96 },
+        })
+    end
+    navigation[#navigation + 1] = { id = 'search', label = medicalAccess and not criminalAccess and 'Patients' or 'Search', icon = 'search',
+        content = { title = 'Records search', description = 'Search broadly, then select a row to open the full record.', blocks = { { type = 'actions', actions = lookupActions } } } }
+
+    if policeAccess then
+        table.insert(navigation, 1, { id = 'dashboard', label = 'Dashboard', icon = 'layout-dashboard',
+            content = { title = 'Operations dashboard', blocks = { { type = 'empty', title = 'Loading operations', description = 'Fetching current MDT activity.' } } } })
+        navigation[#navigation + 1] = { id = 'reports', label = 'Reports', icon = 'file-text', content = {
+            title = 'Incident reports', blocks = { { type = 'actions', actions = {
+                action('report:create', 'New incident report', 'file-plus', {
+                    { id = 'title', label = 'Title', type = 'text', required = true, maxLength = 160 },
+                    { id = 'citizenid', label = 'Subject citizen ID (optional)', type = 'text', maxLength = 64 },
+                    { id = 'charge', label = 'Charge code (optional)', type = 'text', maxLength = 32 },
+                    { id = 'narrative', label = 'Incident narrative', type = 'textarea', required = true, maxLength = 8000 },
+                }, 'primary'), action('report:refresh', 'Refresh reports', 'refresh-cw'),
+            } } } } }
+        navigation[#navigation + 1] = { id = 'cases', label = 'Cases', icon = 'folder-search', content = {
+            title = 'Investigations', blocks = { { type = 'actions', actions = {
+                action('case:create', 'Open a case', 'folder-plus', {
+                    { id = 'title', label = 'Case title', type = 'text', required = true, maxLength = 160 },
+                    { id = 'priority', label = 'Priority', type = 'select', required = true, default = 'normal', options = {
+                        { value = 'low', label = 'Low' }, { value = 'normal', label = 'Normal' },
+                        { value = 'high', label = 'High' }, { value = 'critical', label = 'Critical' },
+                    } },
+                    { id = 'report_id', label = 'Initial report # (optional)', type = 'number', min = 1 },
+                    { id = 'summary', label = 'Investigation summary', type = 'textarea', required = true, maxLength = 8000 },
+                }, 'primary'), action('case:refresh', 'Refresh cases', 'refresh-cw'),
+            } } } } }
+        navigation[#navigation + 1] = { id = 'warrants', label = 'Warrants', icon = 'gavel', content = {
+            title = 'Warrants', blocks = { { type = 'actions', actions = {
+                action('warrant:create', 'Issue warrant', 'file-warning', {
+                    { id = 'citizenid', label = 'Citizen ID', type = 'text', required = true, maxLength = 64 },
+                    { id = 'reason', label = 'Probable cause / reason', type = 'textarea', required = true, maxLength = 1000 },
+                    { id = 'days', label = 'Valid for days', type = 'number', required = true, default = C.operations.warrantDefaultDays, min = 1, max = C.operations.warrantMaxDays },
+                }, 'primary'), action('warrant:refresh', 'Refresh warrants', 'refresh-cw'),
+            } } } } }
+        navigation[#navigation + 1] = { id = 'bolos', label = 'BOLOs', icon = 'siren', content = {
+            title = 'Be On Lookout', blocks = { { type = 'actions', actions = {
+                action('bolo:create', 'Create BOLO', 'siren', {
+                    { id = 'subject_type', label = 'Subject type', type = 'select', required = true, default = 'person', options = {
+                        { value = 'person', label = 'Person' }, { value = 'vehicle', label = 'Vehicle' },
+                    } },
+                    { id = 'identifier', label = 'Citizen ID or plate', type = 'text', required = true, maxLength = 96 },
+                    { id = 'title', label = 'Alert title', type = 'text', required = true, maxLength = 160 },
+                    { id = 'description', label = 'Description and instructions', type = 'textarea', required = true, maxLength = 1500 },
+                    { id = 'days', label = 'Valid for days', type = 'number', required = true, default = C.operations.boloDefaultDays, min = 1, max = C.operations.boloMaxDays },
+                }, 'primary'), action('bolo:refresh', 'Refresh BOLOs', 'refresh-cw'),
+            } } } } }
+        navigation[#navigation + 1] = { id = 'tools', label = 'Tools', icon = 'briefcase', content = {
+            title = 'Police tools', blocks = { { type = 'actions', actions = {
+                action('criminal:create', 'Add criminal record', 'file-plus', {
+                    { id = 'citizenid', label = 'Citizen ID', type = 'text', required = true },
+                    { id = 'charge', label = 'Charge code', type = 'text', required = true },
+                    { id = 'notes', label = 'Notes', type = 'textarea', maxLength = 1000 },
+                }), action('analysis:start', 'Analyse ballistic casing', 'microscope', {
+                    { id = 'caseid', label = 'Casing case ID', type = 'text', required = true },
+                }),
+            } } } } }
+    end
+
+    if medicalAccess then
+        navigation[#navigation + 1] = { id = 'medical', label = 'Medical records', icon = 'heart-pulse', content = {
+            title = 'Medical records', blocks = { { type = 'actions', actions = {
+                action('medical:create', 'Add medical record', 'file-plus', {
+                    { id = 'citizenid', label = 'Citizen ID', type = 'text', required = true },
+                    { id = 'notes', label = 'Treatment / notes', type = 'textarea', required = true, maxLength = 1000 },
+                }),
+            } } } } }
+    end
+    navigation[#navigation + 1] = resultView
+
+    local function refreshDashboard()
+        local data = QB.callback.trigger('qbmdt:server:dashboard') or {}
+        local recent = {}
+        for _, row in ipairs(data.recent or {}) do recent[#recent + 1] = {
+            id = tostring(row.id), title = ('Report #%s · %s'):format(row.id, row.title),
+            description = row.status, timestamp = tostring(row.updated_at or ''), icon = 'file-text',
+            tone = row.status == 'open' and 'warning' or 'neutral',
+        } end
+        findView('dashboard').content = { title = 'Operations dashboard', description = 'Current records requiring attention.', blocks = {
+            { type = 'stats', items = {
+                { label = 'Open reports', value = tonumber(data.open_reports) or 0, icon = 'file-text', tone = 'primary' },
+                { label = 'Open cases', value = tonumber(data.open_cases) or 0, icon = 'folder-search' },
+                { label = 'Active warrants', value = tonumber(data.active_warrants) or 0, icon = 'gavel', tone = 'warning' },
+                { label = 'Active BOLOs', value = tonumber(data.active_bolos) or 0, icon = 'siren', tone = 'destructive' },
+            } }, { type = 'timeline', title = 'Recent reports', items = recent, empty = 'No incident reports have been filed.' },
+        } }
+    end
+
+    local function refreshReports()
+        local rows, err = QB.callback.trigger('qbmdt:server:reports')
+        if not rows then return nil, err end
+        local output = {}
+        for _, row in ipairs(rows) do output[#output + 1] = {
+            id = tostring(row.id), status = statusCell(row.status), title = row.title,
+            subject = row.subject_name or row.subject_citizenid or '—', charge = row.charge_code or '—', updated = row.updated_at or '—',
+        } end
+        local view = findView('reports')
+        view.content.blocks[2] = { type = 'table', id = 'report-list', title = 'Recent reports', searchable = true, pageSize = 12,
+            columns = { { key = 'id', label = '#', sortable = true }, { key = 'status', label = 'Status', sortable = true },
+                { key = 'title', label = 'Title', sortable = true }, { key = 'subject', label = 'Subject', sortable = true },
+                { key = 'charge', label = 'Charge' }, { key = 'updated', label = 'Updated', sortable = true } },
+            rows = output, empty = 'No reports found.', action = 'report:select', idKey = 'id' }
+        return true
+    end
+
+    local function refreshCases()
+        local rows, err = QB.callback.trigger('qbmdt:server:cases')
+        if not rows then return nil, err end
+        local output = {}
+        for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), priority = statusCell(row.priority),
+            status = statusCell(row.status), title = row.title, lead = row.lead_citizenid, reports = tonumber(row.report_count) or 0, updated = row.updated_at or '—' } end
+        findView('cases').content.blocks[2] = { type = 'table', id = 'case-list', title = 'Investigation files', searchable = true, pageSize = 12,
+            columns = { { key = 'id', label = '#', sortable = true }, { key = 'priority', label = 'Priority', sortable = true },
+                { key = 'status', label = 'Status', sortable = true }, { key = 'title', label = 'Case', sortable = true },
+                { key = 'lead', label = 'Lead' }, { key = 'reports', label = 'Reports', align = 'right' }, { key = 'updated', label = 'Updated' } },
+            rows = output, empty = 'No cases found.', action = 'case:select', idKey = 'id' }
+        return true
+    end
+
+    local function refreshWarrants()
+        local rows, err = QB.callback.trigger('qbmdt:server:warrants')
+        if not rows then return nil, err end
+        local output = {}
+        for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), status = statusCell(row.status),
+            subject = row.subject_name or row.citizenid, citizenid = row.citizenid, reason = row.reason, expires = row.expires_at or '—' } end
+        findView('warrants').content.blocks[2] = { type = 'table', id = 'warrant-list', title = 'Warrant register', searchable = true, pageSize = 12,
+            columns = { { key = 'id', label = '#', sortable = true }, { key = 'status', label = 'Status', sortable = true },
+                { key = 'subject', label = 'Subject', sortable = true }, { key = 'reason', label = 'Reason' }, { key = 'expires', label = 'Expires', sortable = true } },
+            rows = output, empty = 'No warrants found.', action = 'warrant:select', idKey = 'id' }
+        return true
+    end
+
+    local function refreshBolos()
+        local rows, err = QB.callback.trigger('qbmdt:server:bolos')
+        if not rows then return nil, err end
+        local output = {}
+        for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), status = statusCell(row.status),
+            kind = row.subject_type, subject = row.subject_identifier, title = row.title, description = row.description, expires = row.expires_at or '—' } end
+        findView('bolos').content.blocks[2] = { type = 'table', id = 'bolo-list', title = 'Current and recent BOLOs', searchable = true, pageSize = 12,
+            columns = { { key = 'id', label = '#', sortable = true }, { key = 'status', label = 'Status', sortable = true },
+                { key = 'kind', label = 'Type', sortable = true }, { key = 'subject', label = 'Subject', sortable = true },
+                { key = 'title', label = 'Alert' }, { key = 'expires', label = 'Expires' } },
+            rows = output, empty = 'No BOLOs found.', action = 'bolo:select', idKey = 'id' }
+        return true
+    end
+
+    if policeAccess then
+        refreshDashboard()
+        refreshReports()
+        refreshCases()
+        refreshWarrants()
+        refreshBolos()
+    end
+
+    QB.nui.registerApp({
+        id = 'qbmdt:terminal', title = role == 'medical' and 'Medical Records Terminal' or 'Mobile Data Terminal',
+        description = role == 'medical' and 'Patient and treatment records' or 'Law enforcement operations and records',
+        icon = role == 'medical' and 'heart-pulse' or 'monitor-smartphone', width = 1240, height = 820,
+        navigation = navigation, footer = 'Every record is permission-checked by the server. Operational changes are audited.',
+        onAction = function(selectedId, context)
+            local input = type(context and context.value) == 'table' and context.value or {}
+            local itemId = context and context.itemId
+
+            if selectedId == 'person:search' then
+                local rows, err = QB.callback.trigger('qbmdt:server:searchPeople', input.query)
+                if not rows then return message(false, nil, err) end
+                return update('search', { title = 'Citizen search', description = ('Results for “%s”'):format(input.query), blocks = {
+                    { type = 'actions', actions = lookupActions },
+                    { type = 'table', id = 'people-results', searchable = true, pageSize = 12,
+                        columns = { { key = 'citizenid', label = 'Citizen ID', sortable = true }, { key = 'name', label = 'Name', sortable = true },
+                            { key = 'phone_number', label = 'Phone' }, { key = 'last_updated', label = 'Last seen', sortable = true } },
+                        rows = rows, empty = 'No citizens matched.', action = 'person:select', idKey = 'citizenid' },
+                } })
+            elseif selectedId == 'person:select' and itemId then
+                return openPerson(itemId)
+            elseif selectedId == 'vehicle:search' and policeAccess then
+                local rows, err = QB.callback.trigger('qbmdt:server:searchVehicles', input.query)
+                if not rows then return message(false, nil, err) end
+                return update('search', { title = 'Vehicle search', description = ('Results for “%s”'):format(input.query), blocks = {
+                    { type = 'actions', actions = lookupActions },
+                    { type = 'table', id = 'vehicle-results', searchable = true, pageSize = 12,
+                        columns = { { key = 'plate', label = 'Plate', sortable = true }, { key = 'model', label = 'Model', sortable = true },
+                            { key = 'owner_name', label = 'Owner', sortable = true }, { key = 'citizenid', label = 'Citizen ID' }, { key = 'state', label = 'State', sortable = true } },
+                        rows = rows, empty = 'No vehicles matched.', action = 'vehicle:select', idKey = 'plate' },
+                } })
+            elseif selectedId == 'vehicle:select' and itemId and policeAccess then
+                return openVehicle(itemId)
+            elseif selectedId == 'charges:list' and policeAccess then
+                local rows, err = QB.callback.trigger('qbmdt:server:charges')
+                if not rows then return message(false, nil, err) end
+                return showResult({ title = 'Penal code', description = 'Server-authorized charge catalogue.', blocks = { {
+                    type = 'table', id = 'charges', searchable = true, pageSize = 12,
+                    columns = { { key = 'code', label = 'Code', sortable = true }, { key = 'label', label = 'Charge', sortable = true },
+                        { key = 'fine', label = 'Fine', align = 'right', sortable = true } }, rows = rows, empty = 'No charges configured.',
+                } } })
+            elseif selectedId == 'firearm:search' and policeAccess then
+                local row, err = QB.callback.trigger('qbmdt:server:shopFirearm', input.serial)
+                if not row then return message(false, nil, err or 'No registered firearm found.') end
+                return showResult({ title = row.weapon_name or input.serial, description = 'Firearm registration', blocks = { {
+                    type = 'details', columns = 2, items = { { label = 'Serial', value = row.serial or input.serial },
+                        { label = 'Owner citizen ID', value = row.owner_citizenid }, { label = 'Licence', value = row.licence_number or '—' },
+                        { label = 'Purchased', value = row.purchased_at or '—' } },
+                } } })
+            elseif selectedId == 'report:refresh' and policeAccess then
+                local ok, err = refreshReports(); return ok and update('reports') or message(false, nil, err)
+            elseif selectedId == 'report:create' and policeAccess then
+                local id, err = QB.callback.trigger('qbmdt:server:createReport', input)
+                if not id then return message(false, nil, err) end
+                refreshReports(); refreshDashboard()
+                return update('reports', nil, { tone = 'success', message = ('Incident report #%s created.'):format(id) })
+            elseif selectedId == 'report:select' and itemId and policeAccess then
+                local row, err = QB.callback.trigger('qbmdt:server:report', itemId)
+                if not row then return message(false, nil, err or 'Report not found.') end
+                selectedReport = row
+                local actions = {}
+                if row.status == 'open' then actions[1] = { id = 'report:close', label = 'Close report', icon = 'check-circle', variant = 'primary', confirm = 'Close this incident report?' } end
+                return showResult({ title = ('Report #%s · %s'):format(row.id, row.title), description = row.narrative, actions = actions, blocks = {
+                    { type = 'details', title = 'Report details', columns = 2, items = {
+                        { label = 'Status', value = row.status }, { label = 'Subject', value = row.subject_name or row.subject_citizenid or 'None' },
+                        { label = 'Charge', value = row.charge_label and ((row.charge_code or '') .. ' · ' .. row.charge_label) or 'None' },
+                        { label = 'Fine', value = row.fine or '—' }, { label = 'Author', value = row.author_name or row.author_citizenid },
+                        { label = 'Created', value = row.created_at or '—' },
+                    } },
+                } })
+            elseif selectedId == 'report:close' and selectedReport and policeAccess then
+                local ok, err = QB.callback.trigger('qbmdt:server:closeReport', selectedReport.id)
+                if ok then selectedReport.status = 'closed'; refreshReports(); refreshDashboard() end
+                return ok and update('reports', nil, { tone = 'success', message = 'Report closed.' }) or message(false, nil, err)
+            elseif selectedId == 'case:refresh' and policeAccess then
+                local ok, err = refreshCases(); return ok and update('cases') or message(false, nil, err)
+            elseif selectedId == 'case:create' and policeAccess then
+                local id, err = QB.callback.trigger('qbmdt:server:createCase', input)
+                if not id then return message(false, nil, err) end
+                refreshCases(); refreshDashboard()
+                return update('cases', nil, { tone = 'success', message = ('Case #%s opened.'):format(id) })
+            elseif selectedId == 'case:select' and itemId and policeAccess then
+                local row, err = QB.callback.trigger('qbmdt:server:case', itemId)
+                if not row then return message(false, nil, err or 'Case not found.') end
+                selectedCase = row
+                local caseActions = {
+                    { id = 'case:link-report', label = 'Link incident report', icon = 'link', fields = {
+                        { id = 'report_id', label = 'Incident report #', type = 'number', required = true, min = 1 },
+                    } },
+                }
+                if row.status == 'open' then
+                    caseActions[#caseActions + 1] = { id = 'case:investigate', label = 'Begin investigation', icon = 'search', variant = 'primary' }
+                end
+                if row.status ~= 'closed' then
+                    caseActions[#caseActions + 1] = { id = 'case:close', label = 'Close case', icon = 'check-circle', variant = 'primary', confirm = 'Close this investigation?' }
+                else
+                    caseActions[#caseActions + 1] = { id = 'case:reopen', label = 'Reopen case', icon = 'rotate-ccw', confirm = 'Reopen this investigation?' }
+                end
+                local linked = {}
+                for _, report in ipairs(row.reports or {}) do linked[#linked + 1] = {
+                    id = tostring(report.id), title = ('Report #%s · %s'):format(report.id, report.title),
+                    description = report.subject_citizenid or 'No subject', timestamp = tostring(report.updated_at or ''),
+                    icon = 'file-text', tone = report.status == 'open' and 'warning' or 'neutral',
+                } end
+                return showResult({ title = ('Case #%s · %s'):format(row.id, row.title), description = row.summary,
+                    actions = caseActions, blocks = {
+                        { type = 'details', title = 'Investigation', columns = 2, items = {
+                            { label = 'Status', value = row.status }, { label = 'Priority', value = row.priority },
+                            { label = 'Lead', value = row.lead_name or row.lead_citizenid }, { label = 'Opened', value = row.created_at or '—' },
+                        } }, { type = 'timeline', title = 'Linked reports', items = linked, empty = 'No reports linked to this case.' },
+                    } })
+            elseif selectedId == 'case:link-report' and selectedCase and policeAccess then
+                local ok, err = QB.callback.trigger('qbmdt:server:linkCaseReport', selectedCase.id, input.report_id)
+                if ok then refreshCases() end
+                return ok and update('cases', nil, { tone = 'success', message = 'Report linked to case.' }) or message(false, nil, err)
+            elseif (selectedId == 'case:investigate' or selectedId == 'case:close' or selectedId == 'case:reopen') and selectedCase and policeAccess then
+                local state = selectedId == 'case:investigate' and 'investigating' or selectedId == 'case:close' and 'closed' or 'open'
+                local ok, err = QB.callback.trigger('qbmdt:server:updateCaseStatus', selectedCase.id, state)
+                if ok then selectedCase.status = state; refreshCases(); refreshDashboard() end
+                return ok and update('cases', nil, { tone = 'success', message = 'Case marked ' .. state .. '.' }) or message(false, nil, err)
+            elseif selectedId == 'warrant:refresh' and policeAccess then
+                local ok, err = refreshWarrants(); return ok and update('warrants') or message(false, nil, err)
+            elseif selectedId == 'warrant:create' and policeAccess then
+                local id, err = QB.callback.trigger('qbmdt:server:createWarrant', input)
+                if not id then return message(false, nil, err) end
+                refreshWarrants(); refreshDashboard()
+                return update('warrants', nil, { tone = 'success', message = ('Warrant #%s issued.'):format(id) })
+            elseif selectedId == 'warrant:select' and itemId and policeAccess then
+                for _, row in ipairs(QB.callback.trigger('qbmdt:server:warrants') or {}) do if tostring(row.id) == tostring(itemId) then selectedWarrant = row; break end end
+                if not selectedWarrant then return message(false, nil, 'Warrant not found.') end
+                local actions = {}
+                if selectedWarrant.status == 'active' then actions = {
+                    { id = 'warrant:serve', label = 'Mark served', icon = 'check-circle', variant = 'primary', confirm = 'Mark this warrant as served?' },
+                    { id = 'warrant:revoke', label = 'Revoke warrant', icon = 'x-circle', variant = 'destructive', confirm = 'Revoke this warrant?' },
+                } end
+                return showResult({ title = ('Warrant #%s'):format(selectedWarrant.id), description = selectedWarrant.reason, actions = actions, blocks = { {
+                    type = 'details', columns = 2, items = { { label = 'Status', value = selectedWarrant.status },
+                        { label = 'Subject', value = selectedWarrant.subject_name or selectedWarrant.citizenid },
+                        { label = 'Citizen ID', value = selectedWarrant.citizenid }, { label = 'Expires', value = selectedWarrant.expires_at or '—' },
+                        { label = 'Issued by', value = selectedWarrant.author_citizenid }, },
+                } } })
+            elseif (selectedId == 'warrant:serve' or selectedId == 'warrant:revoke') and selectedWarrant and policeAccess then
+                local state = selectedId == 'warrant:serve' and 'served' or 'revoked'
+                local ok, err = QB.callback.trigger('qbmdt:server:closeWarrant', selectedWarrant.id, state)
+                if ok then selectedWarrant.status = state; refreshWarrants(); refreshDashboard() end
+                return ok and update('warrants', nil, { tone = 'success', message = 'Warrant marked ' .. state .. '.' }) or message(false, nil, err)
+            elseif selectedId == 'bolo:refresh' and policeAccess then
+                local ok, err = refreshBolos(); return ok and update('bolos') or message(false, nil, err)
+            elseif selectedId == 'bolo:create' and policeAccess then
+                local id, err = QB.callback.trigger('qbmdt:server:createBolo', input)
+                if not id then return message(false, nil, err) end
+                refreshBolos(); refreshDashboard()
+                return update('bolos', nil, { tone = 'success', message = ('BOLO #%s created.'):format(id) })
+            elseif selectedId == 'bolo:select' and itemId and policeAccess then
+                for _, row in ipairs(QB.callback.trigger('qbmdt:server:bolos') or {}) do if tostring(row.id) == tostring(itemId) then selectedBolo = row; break end end
+                if not selectedBolo then return message(false, nil, 'BOLO not found.') end
+                local actions = selectedBolo.status == 'active' and { { id = 'bolo:resolve', label = 'Resolve BOLO', icon = 'check-circle', variant = 'primary', confirm = 'Resolve this BOLO?' } } or {}
+                return showResult({ title = ('BOLO #%s · %s'):format(selectedBolo.id, selectedBolo.title), description = selectedBolo.description, actions = actions, blocks = { {
+                    type = 'details', columns = 2, items = { { label = 'Status', value = selectedBolo.status },
+                        { label = 'Type', value = selectedBolo.subject_type }, { label = 'Subject', value = selectedBolo.subject_identifier },
+                        { label = 'Expires', value = selectedBolo.expires_at or '—' }, { label = 'Created by', value = selectedBolo.author_citizenid }, },
+                } } })
+            elseif selectedId == 'bolo:resolve' and selectedBolo and policeAccess then
+                local ok, err = QB.callback.trigger('qbmdt:server:resolveBolo', selectedBolo.id)
+                if ok then selectedBolo.status = 'resolved'; refreshBolos(); refreshDashboard() end
+                return ok and update('bolos', nil, { tone = 'success', message = 'BOLO resolved.' }) or message(false, nil, err)
+            elseif selectedId == 'criminal:create' and criminalAccess then
+                local ok, err = QB.callback.trigger('qbmdt:server:addCriminal', input.citizenid, input.charge, input.notes)
+                return message(ok, 'Criminal record saved.', err)
+            elseif selectedId == 'medical:create' and medicalAccess then
+                local ok, err = QB.callback.trigger('qbmdt:server:addMedical', input.citizenid, input.notes)
+                return message(ok, 'Medical record saved.', err)
+            elseif selectedId == 'analysis:start' and criminalAccess then
+                QB.events.trigger('qbmdt:server:beginAnalysis', input.caseid)
+                return { notice = { tone = 'primary', message = 'Ballistic analysis started.' } }
+            end
+            return {}
+        end,
+    })
+    QB.nui.openApp('qbmdt:terminal')
+end
+
+RegisterNetEvent('qbmdt:client:open', openTerminal)
