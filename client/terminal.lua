@@ -227,7 +227,7 @@ local function openTerminal(role)
         } end
         local view = findView('reports')
         view.content.blocks[2] = { type = 'table', id = 'report-list', title = 'Recent reports', searchable = true, pageSize = 12,
-            columns = { { key = 'id', label = '#', sortable = true }, { key = 'status', label = 'Status', sortable = true },
+            columns = { { key = 'id', label = '#', sortable = true }, { key = 'status', label = 'status', sortable = true },
                 { key = 'title', label = 'Title', sortable = true }, { key = 'subject', label = 'Subject', sortable = true },
                 { key = 'charge', label = 'Charge' }, { key = 'updated', label = 'Updated', sortable = true } },
             rows = output, empty = 'No reports found.', action = 'report:select', idKey = 'id' }
@@ -242,7 +242,7 @@ local function openTerminal(role)
             status = statusCell(row.status), title = row.title, lead = row.lead_citizenid, reports = tonumber(row.report_count) or 0, updated = row.updated_at or '—' } end
         findView('cases').content.blocks[2] = { type = 'table', id = 'case-list', title = 'Investigation files', searchable = true, pageSize = 12,
             columns = { { key = 'id', label = '#', sortable = true }, { key = 'priority', label = 'Priority', sortable = true },
-                { key = 'status', label = 'Status', sortable = true }, { key = 'title', label = 'Case', sortable = true },
+                { key = 'status', label = 'status', sortable = true }, { key = 'title', label = 'Case', sortable = true },
                 { key = 'lead', label = 'Lead' }, { key = 'reports', label = 'Reports', align = 'right' }, { key = 'updated', label = 'Updated' } },
             rows = output, empty = 'No cases found.', action = 'case:select', idKey = 'id' }
         return true
@@ -255,7 +255,7 @@ local function openTerminal(role)
         for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), status = statusCell(row.status),
             subject = row.subject_name or row.citizenid, citizenid = row.citizenid, reason = row.reason, expires = row.expires_at or '—' } end
         findView('warrants').content.blocks[2] = { type = 'table', id = 'warrant-list', title = 'Warrant register', searchable = true, pageSize = 12,
-            columns = { { key = 'id', label = '#', sortable = true }, { key = 'status', label = 'Status', sortable = true },
+            columns = { { key = 'id', label = '#', sortable = true }, { key = 'status', label = 'status', sortable = true },
                 { key = 'subject', label = 'Subject', sortable = true }, { key = 'reason', label = 'Reason' }, { key = 'expires', label = 'Expires', sortable = true } },
             rows = output, empty = 'No warrants found.', action = 'warrant:select', idKey = 'id' }
         return true
@@ -268,7 +268,7 @@ local function openTerminal(role)
         for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), status = statusCell(row.status),
             kind = row.subject_type, subject = row.subject_identifier, title = row.title, description = row.description, expires = row.expires_at or '—' } end
         findView('bolos').content.blocks[2] = { type = 'table', id = 'bolo-list', title = 'Current and recent BOLOs', searchable = true, pageSize = 12,
-            columns = { { key = 'id', label = '#', sortable = true }, { key = 'status', label = 'Status', sortable = true },
+            columns = { { key = 'id', label = '#', sortable = true }, { key = 'status', label = 'status', sortable = true },
                 { key = 'kind', label = 'Type', sortable = true }, { key = 'subject', label = 'Subject', sortable = true },
                 { key = 'title', label = 'Alert' }, { key = 'expires', label = 'Expires' } },
             rows = output, empty = 'No BOLOs found.', action = 'bolo:select', idKey = 'id' }
@@ -347,7 +347,7 @@ local function openTerminal(role)
                 if row.status == 'open' then actions[1] = { id = 'report:close', label = 'Close report', icon = 'check-circle', variant = 'primary', confirm = 'Close this incident report?' } end
                 return showResult({ title = ('Report #%s · %s'):format(row.id, row.title), description = row.narrative, actions = actions, blocks = {
                     { type = 'details', title = 'Report details', columns = 2, items = {
-                        { label = 'Status', value = row.status }, { label = 'Subject', value = row.subject_name or row.subject_citizenid or 'None' },
+                        { label = 'status', value = row.status }, { label = 'Subject', value = row.subject_name or row.subject_citizenid or 'None' },
                         { label = 'Charge', value = row.charge_label and ((row.charge_code or '') .. ' · ' .. row.charge_label) or 'None' },
                         { label = 'Fine', value = row.fine or '—' }, { label = 'Author', value = row.author_name or row.author_citizenid },
                         { label = 'Created', value = row.created_at or '—' },
@@ -390,7 +390,7 @@ local function openTerminal(role)
                 return showResult({ title = ('Case #%s · %s'):format(row.id, row.title), description = row.summary,
                     actions = caseActions, blocks = {
                         { type = 'details', title = 'Investigation', columns = 2, items = {
-                            { label = 'Status', value = row.status }, { label = 'Priority', value = row.priority },
+                            { label = 'status', value = row.status }, { label = 'Priority', value = row.priority },
                             { label = 'Lead', value = row.lead_name or row.lead_citizenid }, { label = 'Opened', value = row.created_at or '—' },
                         } }, { type = 'timeline', title = 'Linked reports', items = linked, empty = 'No reports linked to this case.' },
                     } })
@@ -419,7 +419,7 @@ local function openTerminal(role)
                     { id = 'warrant:revoke', label = 'Revoke warrant', icon = 'x-circle', variant = 'destructive', confirm = 'Revoke this warrant?' },
                 } end
                 return showResult({ title = ('Warrant #%s'):format(selectedWarrant.id), description = selectedWarrant.reason, actions = actions, blocks = { {
-                    type = 'details', columns = 2, items = { { label = 'Status', value = selectedWarrant.status },
+                    type = 'details', columns = 2, items = { { label = 'status', value = selectedWarrant.status },
                         { label = 'Subject', value = selectedWarrant.subject_name or selectedWarrant.citizenid },
                         { label = 'Citizen ID', value = selectedWarrant.citizenid }, { label = 'Expires', value = selectedWarrant.expires_at or '—' },
                         { label = 'Issued by', value = selectedWarrant.author_citizenid }, },
@@ -441,7 +441,7 @@ local function openTerminal(role)
                 if not selectedBolo then return message(false, nil, 'BOLO not found.') end
                 local actions = selectedBolo.status == 'active' and { { id = 'bolo:resolve', label = 'Resolve BOLO', icon = 'check-circle', variant = 'primary', confirm = 'Resolve this BOLO?' } } or {}
                 return showResult({ title = ('BOLO #%s · %s'):format(selectedBolo.id, selectedBolo.title), description = selectedBolo.description, actions = actions, blocks = { {
-                    type = 'details', columns = 2, items = { { label = 'Status', value = selectedBolo.status },
+                    type = 'details', columns = 2, items = { { label = 'status', value = selectedBolo.status },
                         { label = 'Type', value = selectedBolo.subject_type }, { label = 'Subject', value = selectedBolo.subject_identifier },
                         { label = 'Expires', value = selectedBolo.expires_at or '—' }, { label = 'Created by', value = selectedBolo.author_citizenid }, },
                 } } })

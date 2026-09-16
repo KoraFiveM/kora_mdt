@@ -116,7 +116,7 @@ exports.qbtarget:addPolyZone({
     points = C.weaponLicence.zone.points,
     thickness = C.weaponLicence.zone.thickness,
     distance = C.weaponLicence.interactionDistance,
-    options = { { label = 'Start weapon licence range', icon = 'crosshair', onSelect = function() QB.events.trigger('qbmdt:server:startWeaponLicence') end } },
+    options = { { label = 'start weapon licence range', icon = 'crosshair', onSelect = function() QB.events.trigger('qbmdt:server:startWeaponLicence') end } },
 })
 
 for _, record in ipairs(C.firearms.shopRecords) do
