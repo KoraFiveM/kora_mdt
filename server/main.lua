@@ -109,7 +109,8 @@ end)
 exports.qbinventory:RegisterHook('buyItem', function(payload, src)
     if payload.shopId ~= C.firearms.shopId then return true end
     if not exports.qbcore:getShared('weapons', payload.itemName) then return true end
-    if payload.count ~= 1 or not hasWeaponLicense(src) then return false end
+    if payload.count ~= 1 then return false end
+    if not hasWeaponLicense(src) then return 'You need a weapon licence to purchase firearms.' end
     return true
 end)
 
