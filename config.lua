@@ -75,4 +75,55 @@ Config.mdt = {
 }
 
 -- Registers this resource-owned configuration with qblib without changing its public Config table.
-if QB and QB.config and QB.config.adopt then Config = QB.config.adopt(Config) end
+if QB and QB.config and QB.config.adopt then
+    Config.mdt.roles.policeJobs = QB.config.map(Config.mdt.roles.policeJobs, QB.config.boolean(false), {
+        label = 'Police jobs',
+        description = 'Lists the job names that receive police access to the MDT. Use the job name as the key and true as the value; removing a row revokes that job’s police role after the resource restarts.',
+    })
+    Config.mdt.roles.medicalJobs = QB.config.map(Config.mdt.roles.medicalJobs, QB.config.boolean(false), {
+        label = 'Medical jobs',
+        description = 'Lists the job names that receive medical access to the MDT. Use the job name as the key and true as the value; removing a row revokes that job’s medical role after the resource restarts.',
+    })
+    Config.mdt.roles.judgeJobs = QB.config.map(Config.mdt.roles.judgeJobs, QB.config.boolean(false), {
+        label = 'Judge jobs',
+        description = 'Lists the job names that receive judicial access to the MDT. Use the job name as the key and true as the value; removing a row revokes that job’s judge role after the resource restarts.',
+    })
+    Config.mdt.firearms.lookupMode = QB.config.enum(Config.mdt.firearms.lookupMode, {
+        label = 'Firearm lookup mode',
+        description = 'Chooses where firearm sale records can be searched. NPC requires players to use a configured records clerk in person, while MDT exposes the lookup from the terminal.',
+        options = {
+            { value = 'npc', label = 'Records clerk (NPC)' },
+            { value = 'mdt', label = 'MDT terminal' },
+        },
+    })
+
+    Config = QB.config.adopt(Config, { descriptions = {
+        ['mdt.command'] = 'Sets the client command players run to open the MDT. Enter the command name without a slash; role and on-duty checks still run on the server before the terminal opens.',
+        ['mdt.roles.requireOnDuty'] = 'Controls whether authorised police, medical, and judge jobs must also be marked on duty before they can open or use the MDT. Disable it only if this server intentionally grants off-duty access.',
+        ['mdt.firearms.shopId'] = 'Identifies the inventory shop whose weapon purchases require a weapon licence and are written to the firearm registry. The value must exactly match the shop ID emitted by qbinventory.',
+        ['mdt.firearms.shopRecords'] = 'Defines the in-world firearm records clerks used in NPC lookup mode. Each numbered row needs a coords vector4 and a label; the server only releases a sale record when the player is close to one of these coordinates.',
+        ['mdt.weaponLicence.weapon'] = 'Sets the temporary weapon issued for the live-fire licence test. Use the exact inventory weapon name because the server verifies every recorded training shot against this value.',
+        ['mdt.weaponLicence.targetModel'] = 'Sets the prop model spawned for each temporary firing-range target. The model must exist and be loadable by the client or the licence session is cancelled when no targets can be created.',
+        ['mdt.weaponLicence.targetHeading'] = 'Sets the heading, in degrees, applied to every spawned firing-range target. Change this when the target props face away from the shooting lanes.',
+        ['mdt.weaponLicence.range'] = 'Defines the world-space origin for the weapon-licence firing range. Every target offset is added to this vector3 before its target prop is spawned.',
+        ['mdt.weaponLicence.zone.points'] = 'Defines the ordered polygon surrounding the entire weapon-licence range. Keep the vector3 points around the mapped interior boundary; clients and the server both use this polygon to cancel sessions when a player leaves.',
+        ['mdt.weaponLicence.zone.thickness'] = 'Sets the vertical height, in game units, of the weapon-licence polygon above its lowest configured point. It must cover the usable interior without extending into unrelated floors.',
+        ['mdt.weaponLicence.interactionDistance'] = 'Sets how close a player must be to the range interaction zone to begin a weapon-licence session. The same distance is used by both the target prompt and the server-side proximity check.',
+        ['mdt.weaponLicence.shots'] = 'Sets the number of temporary training rounds issued and the number of sequential shots required to complete the live-fire portion of a weapon-licence session.',
+        ['mdt.weaponLicence.trainingTimeout'] = 'Sets the maximum duration of a weapon-licence range session in milliseconds. When this timer expires, the server ends the session and removes the temporary training weapon.',
+        ['mdt.weaponLicence.qualification.game'] = 'Selects the qblib minigame used for the weapon-licence qualification step. The name must match a registered qblib minigame accepted by both proof authorisation and the client player.',
+        ['mdt.weaponLicence.qualification.opts.attempts'] = 'Sets how many attempts the configured weapon-licence qualification minigame permits before it returns a failed result.',
+        ['mdt.weaponLicence.qualification.opts.zoneSize'] = 'Sets the success-zone size passed to the weapon-licence skillbar minigame. Smaller values make the qualification timing window more difficult.',
+        ['mdt.weaponLicence.qualification.opts.timeLimit'] = 'Sets the weapon-licence qualification minigame time limit in milliseconds. A player who does not complete the challenge before this limit fails the session.',
+        ['mdt.weaponLicence.targetOffsets'] = 'Defines the ordered vector3 offsets for temporary range targets relative to the configured range origin. Add or remove rows to change how many target props spawn and where each one appears.',
+        ['mdt.analysis.ttl'] = 'Sets the total time, in milliseconds, allowed to complete every configured evidence-analysis stage. The server invalidates the active analysis and its one-use proofs when this deadline expires.',
+        ['mdt.analysis.stages'] = 'Defines the ordered qblib minigames required to analyse ballistic evidence. Each row needs a game name and an opts object; stages run in row order and every successful stage consumes a server-issued one-use proof.',
+        ['mdt.operations.searchLimit'] = 'Sets the maximum number of people or vehicle records returned by one MDT search query. Keep this bounded to prevent broad searches from producing oversized database results and UI payloads.',
+        ['mdt.operations.recentLimit'] = 'Sets the maximum number of recent cases, warrants, or BOLO records loaded into their MDT lists. This value is inserted into bounded server-owned SQL queries.',
+        ['mdt.operations.warrantDefaultDays'] = 'Sets the default number of days prefilled when a judge creates a warrant. The submitted duration is clamped between one day and the configured warrant maximum.',
+        ['mdt.operations.warrantMaxDays'] = 'Sets the longest warrant duration, in days, that the server will accept. Longer submitted values are reduced to this limit before the warrant is stored.',
+        ['mdt.operations.boloDefaultDays'] = 'Sets the default number of days prefilled when an authorised user creates a BOLO. The submitted duration is clamped between one day and the configured BOLO maximum.',
+        ['mdt.operations.boloMaxDays'] = 'Sets the longest BOLO duration, in days, that the server will accept. Longer submitted values are reduced to this limit before the BOLO is stored.',
+        ['mdt.charges'] = 'Defines the charge catalogue seeded into the MDT database when it becomes ready. Each numbered row needs a unique code, display label, and non-negative fine; existing database rows with the same code are left intact.',
+    } })
+end
