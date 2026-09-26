@@ -13,6 +13,7 @@ dependency 'qbcore'
 dependency 'qbinventory'
 dependency 'qbpolice'
 dependency 'qbtarget'
+dependency 'qbdispatch'
 
 shared_scripts {
     '@qblib/init.lua',
