@@ -112,13 +112,43 @@ RegisterNetEvent('qbmdt:client:analysisComplete', function(result)
     notify(('Case %s linked to %s (%s).'):format(result.caseId, result.weapon, result.weaponSerial), 'success')
 end)
 
-exports.qbtarget:addPolyZone({
-    points = C.weaponLicence.zone.points,
-    thickness = C.weaponLicence.zone.thickness,
-    distance = C.weaponLicence.interactionDistance,
-    options = { { label = 'start weapon licence range', icon = 'crosshair', onSelect = function() QB.events.trigger('qbmdt:server:startWeaponLicence') end } },
-})
+local licenceTarget, recordsClerks = nil, {}
 
+local function registerLicenceTarget()
+    if licenceTarget or GetResourceState('qbtarget') ~= 'started' then return end
+    licenceTarget = exports.qbtarget:addPolyZone({
+        points = C.weaponLicence.zone.points,
+        thickness = C.weaponLicence.zone.thickness,
+        distance = C.weaponLicence.interactionDistance,
+        options = { { label = 'start weapon licence range', icon = 'crosshair', onSelect = function() QB.events.trigger('qbmdt:server:startWeaponLicence') end } },
+    })
+end
+
+local function registerRecordsClerk(clerk)
+    if clerk.target or GetResourceState('qbtarget') ~= 'started' then return end
+    local record = clerk.record
+    clerk.target = exports.qbtarget:addEntity(clerk.ped, { { label = record.label, icon = 'file-search', onSelect = function()
+        local input = form(record.label, { { id = 'serial', label = 'Gun serial number', type = 'text', required = true } })
+        if not input then return end
+        local row, err = QB.callback.trigger('qbmdt:server:shopFirearm', input.serial)
+        notify(row and ('%s — owner %s'):format(row.weapon_name, row.owner_citizenid) or (err or 'No record found.'), row and 'info' or 'error')
+    end } }, 2.0)
+end
+
+AddEventHandler('onClientResourceStop', function(resource)
+    if resource ~= 'qbtarget' then return end
+    -- Registration IDs belong to that target instance and may be reused after restart.
+    licenceTarget = nil
+    for _, clerk in ipairs(recordsClerks) do clerk.target = nil end
+end)
+
+AddEventHandler('onClientResourceStart', function(resource)
+    if resource ~= 'qbtarget' then return end
+    registerLicenceTarget()
+    for _, clerk in ipairs(recordsClerks) do registerRecordsClerk(clerk) end
+end)
+
+registerLicenceTarget()
 for _, record in ipairs(C.firearms.shopRecords) do
     -- A local, invincible clerk makes the configured RP lookup a real person
     -- at the counter. The server still verifies the player's distance before
@@ -126,10 +156,11 @@ for _, record in ipairs(C.firearms.shopRecords) do
     local clerk, err = QB.entities.create('s_m_m_ammucountry', vector4(
         record.coords.x, record.coords.y, record.coords.z - 1.0, record.coords.w
     ), { preset = 'static' })
-    if clerk then exports.qbtarget:addEntity(clerk, { { label = record.label, icon = 'file-search', onSelect = function()
-            local input = form(record.label, { { id = 'serial', label = 'Gun serial number', type = 'text', required = true } })
-            if not input then return end
-            local row, err = QB.callback.trigger('qbmdt:server:shopFirearm', input.serial)
-            notify(row and ('%s — owner %s'):format(row.weapon_name, row.owner_citizenid) or (err or 'No record found.'), row and 'info' or 'error')
-        end } }, 2.0) else print(('^1[qbmdt]^7 records clerk failed to spawn: %s'):format(tostring(err))) end
+    if clerk then
+        local entry = { ped = clerk, record = record }
+        recordsClerks[#recordsClerks + 1] = entry
+        registerRecordsClerk(entry)
+    else
+        print(('^1[qbmdt]^7 records clerk failed to spawn: %s'):format(tostring(err)))
+    end
 end

@@ -11,13 +11,18 @@ end
 
 local handlers, commands, serverEvents, removed, licenceZone = {}, {}, {}, {}, nil
 local recordsClerkOption, inputDialog
+local hooks, licenceRegistrations, clerkRegistrations, clerkSpawns, nextTargetId = {}, 0, 0, 0, 0
+local recordsClerk, recordsDistance
+local targetState = 'started'
 local registeredApp, openedApp
 local entityFactory = function() return 900 end
 local minigameResult = { success = false }
 
 function _G.RegisterNetEvent(name, callback) if callback then handlers[name] = callback end end
 function _G.RegisterCommand(name, callback) commands[name] = callback end
+function _G.AddEventHandler(name, callback) hooks[name] = callback end
 function _G.CreateThread() end
+function _G.GetResourceState(resource) return resource == 'qbtarget' and targetState or 'missing' end
 _G.QB = {
     nui = {
         openInputDialog = function(fields, title)
@@ -40,15 +45,26 @@ _G.QB = {
         end,
     },
     entities = {
-        create = function(...) return entityFactory(...) end,
+        create = function(model, ...)
+            if model == 's_m_m_ammucountry' then clerkSpawns = clerkSpawns + 1 end
+            return entityFactory(model, ...)
+        end,
         remove = function(entity) removed[#removed + 1] = entity; return true end,
     },
 }
 
 local exportImpls = {
     qbtarget = {
-        addPolyZone = function(options) licenceZone = options end,
-        addEntity = function(_, options) recordsClerkOption = options[1] end,
+        addPolyZone = function(options)
+            licenceZone = options
+            licenceRegistrations, nextTargetId = licenceRegistrations + 1, nextTargetId + 1
+            return nextTargetId
+        end,
+        addEntity = function(entity, options, distance)
+            recordsClerk, recordsClerkOption, recordsDistance = entity, options[1], distance
+            clerkRegistrations, nextTargetId = clerkRegistrations + 1, nextTargetId + 1
+            return nextTargetId
+        end,
     },
     qblib = {
         minigames_play = function() return minigameResult end,
@@ -69,7 +85,7 @@ _G.exports = setmetatable({}, {
 
 dofile('config.lua')
 dofile('client/terminal.lua')
-dofile('client/main.lua')
+dofile(arg[1] or 'client/main.lua')
 
 local function settings()
     return {
@@ -155,6 +171,67 @@ h.test('Ammu-Nation records clerk opens a typed serial-number field', function()
     h.assertEqual(inputDialog.fields[1].id, 'serial')
     h.assertEqual(inputDialog.fields[1].type, 'text')
     h.assertTrue(inputDialog.fields[1].required)
+end)
+
+h.test('qbtarget restart restores range and clerk options without respawning the clerk', function()
+    h.assertTrue(type(hooks.onClientResourceStart) == 'function', 'dependency start listener must exist')
+    h.assertTrue(type(hooks.onClientResourceStop) == 'function', 'dependency stop listener must exist')
+    local ped, spawns = recordsClerk, clerkSpawns
+    local beforeZones, beforeClerks = licenceRegistrations, clerkRegistrations
+    hooks.onClientResourceStop('qbtarget')
+    licenceZone, recordsClerkOption = nil, nil -- Dependency registrations are fresh after restart.
+    hooks.onClientResourceStart('qbtarget')
+    h.assertEqual(licenceRegistrations, beforeZones + 1)
+    h.assertEqual(clerkRegistrations, beforeClerks + #Config.mdt.firearms.shopRecords)
+    h.assertEqual(recordsClerk, ped)
+    h.assertEqual(clerkSpawns, spawns)
+    h.assertEqual(licenceZone.points, Config.mdt.weaponLicence.zone.points)
+    h.assertEqual(licenceZone.thickness, Config.mdt.weaponLicence.zone.thickness)
+    h.assertEqual(licenceZone.distance, Config.mdt.weaponLicence.interactionDistance)
+    h.assertEqual(licenceZone.options[1].label, 'start weapon licence range')
+    h.assertEqual(licenceZone.options[1].icon, 'crosshair')
+    h.assertEqual(recordsClerkOption.label, Config.mdt.firearms.shopRecords[1].label)
+    h.assertEqual(recordsClerkOption.icon, 'file-search')
+    h.assertEqual(recordsDistance, 2.0)
+    reset()
+    licenceZone.options[1].onSelect()
+    h.assertEqual(serverEvents[1].name, 'qbmdt:server:startWeaponLicence')
+    inputDialog = nil
+    recordsClerkOption.onSelect()
+    h.assertEqual(inputDialog.title, Config.mdt.firearms.shopRecords[1].label)
+    h.assertEqual(inputDialog.fields[1].id, 'serial')
+end)
+
+h.test('target recovery ignores foreign and repeated starts but supports another restart', function()
+    h.assertTrue(type(hooks.onClientResourceStart) == 'function')
+    local beforeZones, beforeClerks, spawns = licenceRegistrations, clerkRegistrations, clerkSpawns
+    hooks.onClientResourceStart('foreign')
+    hooks.onClientResourceStop('foreign')
+    hooks.onClientResourceStart('qbmdt')
+    hooks.onClientResourceStart('qbtarget')
+    h.assertEqual(licenceRegistrations, beforeZones)
+    h.assertEqual(clerkRegistrations, beforeClerks)
+    hooks.onClientResourceStop('qbtarget')
+    hooks.onClientResourceStart('qbtarget')
+    hooks.onClientResourceStart('qbtarget')
+    h.assertEqual(licenceRegistrations, beforeZones + 1)
+    h.assertEqual(clerkRegistrations, beforeClerks + #Config.mdt.firearms.shopRecords)
+    h.assertEqual(clerkSpawns, spawns)
+end)
+
+h.test('target registration waits while the dependency is unavailable', function()
+    h.assertTrue(type(hooks.onClientResourceStart) == 'function')
+    local beforeZones, beforeClerks, spawns = licenceRegistrations, clerkRegistrations, clerkSpawns
+    targetState = 'stopped'
+    hooks.onClientResourceStop('qbtarget')
+    hooks.onClientResourceStart('qbtarget')
+    h.assertEqual(licenceRegistrations, beforeZones)
+    h.assertEqual(clerkRegistrations, beforeClerks)
+    targetState = 'started'
+    hooks.onClientResourceStart('qbtarget')
+    h.assertEqual(licenceRegistrations, beforeZones + 1)
+    h.assertEqual(clerkRegistrations, beforeClerks + #Config.mdt.firearms.shopRecords)
+    h.assertEqual(clerkSpawns, spawns)
 end)
 
 h.test('zero spawned range targets cancels the server session', function()
