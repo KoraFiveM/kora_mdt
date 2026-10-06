@@ -47,8 +47,7 @@ local function audit(src, action, targetType, targetId, details)
         { actor, action, targetType, tostring(targetId), cleanText(details, 1000, false) })
 end
 local function near(src, coords, distance)
-    local ped = GetPlayerPed(src)
-    return ped and ped ~= 0 and #(GetEntityCoords(ped) - vector3(coords.x, coords.y, coords.z)) <= distance
+    return QB.distance.player(src, vector3(coords.x, coords.y, coords.z), distance)
 end
 local function weaponLicenceZoneHeight()
     local zone, lowest = C.weaponLicence.zone, math.huge
