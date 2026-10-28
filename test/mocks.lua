@@ -60,7 +60,7 @@ function M.install()
         return handle.players[ped] and handle.players[ped].coords or vector3(10000.0, 10000.0, 10000.0)
     end
     function _G.GetPlayerRoutingBucket(src) return handle.players[src] and handle.players[src].bucket or 0 end
-    function _G.GetCurrentResourceName() return 'qbmdt' end
+    function _G.GetCurrentResourceName() return 'kora_mdt' end
 
     function handle.ensurePlayer(src, overrides)
         overrides = overrides or {}
@@ -184,7 +184,7 @@ function M.install()
         return token
     end
 
-    local exportImpls = { qbcore = {}, qbinventory = {}, qbpolice = {} }
+    local exportImpls = { kora_core = {}, kora_inventory = {}, kora_police = {} }
     _G.exports = setmetatable({}, {
         __call = function() end,
         __index = function(_, resource)
@@ -200,9 +200,9 @@ function M.install()
         end,
     })
 
-    function exportImpls.qbcore.getPlayerData(src) return handle.players[src] end
-    function exportImpls.qbcore.getJob(src) return handle.players[src] and handle.players[src].job end
-    function exportImpls.qbcore.setMetaData(src, key, value)
+    function exportImpls.kora_core.getPlayerData(src) return handle.players[src] end
+    function exportImpls.kora_core.getJob(src) return handle.players[src] and handle.players[src].job end
+    function exportImpls.kora_core.setMetaData(src, key, value)
         if not handle.metadataResult then return false end
         local player = handle.players[src]
         if not player then return false end
@@ -210,23 +210,23 @@ function M.install()
         handle.metadataWrites[#handle.metadataWrites + 1] = { src = src, key = key, value = value }
         return true
     end
-    function exportImpls.qbcore.getShared(kind, item)
+    function exportImpls.kora_core.getShared(kind, item)
         return kind == 'weapons' and type(item) == 'string' and item:find('weapon_', 1, true) == 1 or nil
     end
-    function exportImpls.qbinventory.RegisterHook() return true end
-    function exportImpls.qbinventory.GetItemsByName(src)
+    function exportImpls.kora_inventory.RegisterHook() return true end
+    function exportImpls.kora_inventory.GetItemsByName(src)
         local caseId = handle.evidence[src]
         return caseId and { { info = { caseId = caseId } } } or {}
     end
-    function exportImpls.qbinventory.StartTrainingWeapon(src, weapon, shots)
+    function exportImpls.kora_inventory.StartTrainingWeapon(src, weapon, shots)
         handle.starts[#handle.starts + 1] = { src = src, weapon = weapon, shots = shots }
         return handle.startTrainingResult, handle.startTrainingError
     end
-    function exportImpls.qbinventory.StopTrainingWeapon(src)
+    function exportImpls.kora_inventory.StopTrainingWeapon(src)
         handle.stops[#handle.stops + 1] = src
         return true
     end
-    function exportImpls.qbpolice.GetBallisticCasing(caseId) return handle.ballisticCasings[caseId] end
+    function exportImpls.kora_police.GetBallisticCasing(caseId) return handle.ballisticCasings[caseId] end
 
     return handle
 end

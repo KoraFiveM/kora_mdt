@@ -12,7 +12,7 @@ local function fireRounds(src, from, to, overrides)
     overrides = overrides or {}
     for shot = from, to do
         handle.event('qbinventory:server:trainingRoundFired', src, {
-            owner = overrides.owner or 'qbmdt',
+            owner = overrides.owner or 'kora_mdt',
             weapon = overrides.weapon or Config.mdt.weaponLicence.weapon,
             shot = shot,
         })
@@ -199,9 +199,9 @@ h.test('trusted training rounds must have the right owner, weapon, and strict or
     handle.event('qbinventory:server:trainingRoundFired', 10,
         { owner = 'attacker', weapon = Config.mdt.weaponLicence.weapon, shot = 1 })
     handle.event('qbinventory:server:trainingRoundFired', 10,
-        { owner = 'qbmdt', weapon = 'weapon_smg', shot = 1 })
+        { owner = 'kora_mdt', weapon = 'weapon_smg', shot = 1 })
     handle.event('qbinventory:server:trainingRoundFired', 10,
-        { owner = 'qbmdt', weapon = Config.mdt.weaponLicence.weapon, shot = 2 })
+        { owner = 'kora_mdt', weapon = Config.mdt.weaponLicence.weapon, shot = 2 })
     h.assertTrue(latestAuthorization(10) == nil)
 
     fireRounds(10, 1, Config.mdt.weaponLicence.shots - 1)

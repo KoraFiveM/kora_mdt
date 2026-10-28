@@ -74,7 +74,7 @@ Config.mdt = {
     },
 }
 
--- Registers this resource-owned configuration with qblib without changing its public Config table.
+-- Registers this resource-owned configuration with kora_lib without changing its public Config table.
 if QB and QB.config and QB.config.adopt then
     Config.mdt.roles.policeJobs = QB.config.map(Config.mdt.roles.policeJobs, QB.config.boolean(false), {
         label = 'Police jobs',

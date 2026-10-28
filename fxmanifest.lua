@@ -2,22 +2,24 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-name 'qbmdt'
+name 'kora_mdt'
+-- Keep the legacy resource name resolvable for exports['qbmdt'] callers.
+provide 'qbmdt'
 author 'qbcore2'
 version '0.2.0'
 description 'Role-gated police, court, and medical records terminal'
 
-dependency 'qblib'
-dependency 'qbsql'
-dependency 'qbcore'
-dependency 'qbinventory'
-dependency 'qbpolice'
-dependency 'qbtarget'
-dependency 'qbdispatch'
+dependency 'kora_lib'
+dependency 'kora_sql'
+dependency 'kora_core'
+dependency 'kora_inventory'
+dependency 'kora_police'
+dependency 'kora_target'
+dependency 'kora_dispatch'
 
 shared_scripts {
-    '@qblib/init.lua',
-    '@qbsql/init.lua',
+    '@kora_lib/init.lua',
+    '@kora_sql/init.lua',
     'config.lua',
 }
 

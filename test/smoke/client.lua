@@ -22,7 +22,7 @@ function _G.RegisterNetEvent(name, callback) if callback then handlers[name] = c
 function _G.RegisterCommand(name, callback) commands[name] = callback end
 function _G.AddEventHandler(name, callback) hooks[name] = callback end
 function _G.CreateThread() end
-function _G.GetResourceState(resource) return resource == 'qbtarget' and targetState or 'missing' end
+function _G.GetResourceState(resource) return resource == 'kora_target' and targetState or 'missing' end
 _G.QB = {
     nui = {
         openInputDialog = function(fields, title)
@@ -54,7 +54,7 @@ _G.QB = {
 }
 
 local exportImpls = {
-    qbtarget = {
+    kora_target = {
         addPolyZone = function(options)
             licenceZone = options
             licenceRegistrations, nextTargetId = licenceRegistrations + 1, nextTargetId + 1
@@ -66,7 +66,7 @@ local exportImpls = {
             return nextTargetId
         end,
     },
-    qblib = {
+    kora_lib = {
         minigames_play = function() return minigameResult end,
     },
 }
@@ -178,9 +178,9 @@ h.test('qbtarget restart restores range and clerk options without respawning the
     h.assertTrue(type(hooks.onClientResourceStop) == 'function', 'dependency stop listener must exist')
     local ped, spawns = recordsClerk, clerkSpawns
     local beforeZones, beforeClerks = licenceRegistrations, clerkRegistrations
-    hooks.onClientResourceStop('qbtarget')
+    hooks.onClientResourceStop('kora_target')
     licenceZone, recordsClerkOption = nil, nil -- Dependency registrations are fresh after restart.
-    hooks.onClientResourceStart('qbtarget')
+    hooks.onClientResourceStart('kora_target')
     h.assertEqual(licenceRegistrations, beforeZones + 1)
     h.assertEqual(clerkRegistrations, beforeClerks + #Config.mdt.firearms.shopRecords)
     h.assertEqual(recordsClerk, ped)
@@ -207,13 +207,13 @@ h.test('target recovery ignores foreign and repeated starts but supports another
     local beforeZones, beforeClerks, spawns = licenceRegistrations, clerkRegistrations, clerkSpawns
     hooks.onClientResourceStart('foreign')
     hooks.onClientResourceStop('foreign')
-    hooks.onClientResourceStart('qbmdt')
-    hooks.onClientResourceStart('qbtarget')
+    hooks.onClientResourceStart('kora_mdt')
+    hooks.onClientResourceStart('kora_target')
     h.assertEqual(licenceRegistrations, beforeZones)
     h.assertEqual(clerkRegistrations, beforeClerks)
-    hooks.onClientResourceStop('qbtarget')
-    hooks.onClientResourceStart('qbtarget')
-    hooks.onClientResourceStart('qbtarget')
+    hooks.onClientResourceStop('kora_target')
+    hooks.onClientResourceStart('kora_target')
+    hooks.onClientResourceStart('kora_target')
     h.assertEqual(licenceRegistrations, beforeZones + 1)
     h.assertEqual(clerkRegistrations, beforeClerks + #Config.mdt.firearms.shopRecords)
     h.assertEqual(clerkSpawns, spawns)
@@ -223,12 +223,12 @@ h.test('target registration waits while the dependency is unavailable', function
     h.assertTrue(type(hooks.onClientResourceStart) == 'function')
     local beforeZones, beforeClerks, spawns = licenceRegistrations, clerkRegistrations, clerkSpawns
     targetState = 'stopped'
-    hooks.onClientResourceStop('qbtarget')
-    hooks.onClientResourceStart('qbtarget')
+    hooks.onClientResourceStop('kora_target')
+    hooks.onClientResourceStart('kora_target')
     h.assertEqual(licenceRegistrations, beforeZones)
     h.assertEqual(clerkRegistrations, beforeClerks)
     targetState = 'started'
-    hooks.onClientResourceStart('qbtarget')
+    hooks.onClientResourceStart('kora_target')
     h.assertEqual(licenceRegistrations, beforeZones + 1)
     h.assertEqual(clerkRegistrations, beforeClerks + #Config.mdt.firearms.shopRecords)
     h.assertEqual(clerkSpawns, spawns)

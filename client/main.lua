@@ -80,7 +80,7 @@ end)
 RegisterNetEvent('qbmdt:client:weaponLicenceQualification', function(authorization)
     if not training or type(authorization) ~= 'string' then return end
     local definition = C.weaponLicence.qualification
-    local result = exports.qblib:minigames_play(definition.game, nil, authorization)
+    local result = exports.kora_lib:minigames_play(definition.game, nil, authorization)
     if result and result.success and result.proof then
         QB.events.trigger('qbmdt:server:completeWeaponLicence', result.proof)
     else
@@ -100,7 +100,7 @@ end)
 RegisterNetEvent('qbmdt:client:analysisStage', function(stage, authorization)
     local definition = C.analysis.stages[stage]
     if not definition or type(authorization) ~= 'string' then return end
-    local result = exports.qblib:minigames_play(definition.game, nil, authorization)
+    local result = exports.kora_lib:minigames_play(definition.game, nil, authorization)
     if result and result.success and result.proof then
         QB.events.trigger('qbmdt:server:analysisStage', result.proof)
     else
@@ -115,8 +115,8 @@ end)
 local licenceTarget, recordsClerks = nil, {}
 
 local function registerLicenceTarget()
-    if licenceTarget or GetResourceState('qbtarget') ~= 'started' then return end
-    licenceTarget = exports.qbtarget:addPolyZone({
+    if licenceTarget or GetResourceState('kora_target') ~= 'started' then return end
+    licenceTarget = exports.kora_target:addPolyZone({
         points = C.weaponLicence.zone.points,
         thickness = C.weaponLicence.zone.thickness,
         distance = C.weaponLicence.interactionDistance,
@@ -125,9 +125,9 @@ local function registerLicenceTarget()
 end
 
 local function registerRecordsClerk(clerk)
-    if clerk.target or GetResourceState('qbtarget') ~= 'started' then return end
+    if clerk.target or GetResourceState('kora_target') ~= 'started' then return end
     local record = clerk.record
-    clerk.target = exports.qbtarget:addEntity(clerk.ped, { { label = record.label, icon = 'file-search', onSelect = function()
+    clerk.target = exports.kora_target:addEntity(clerk.ped, { { label = record.label, icon = 'file-search', onSelect = function()
         local input = form(record.label, { { id = 'serial', label = 'Gun serial number', type = 'text', required = true } })
         if not input then return end
         local row, err = QB.callback.trigger('qbmdt:server:shopFirearm', input.serial)
@@ -136,14 +136,14 @@ local function registerRecordsClerk(clerk)
 end
 
 AddEventHandler('onClientResourceStop', function(resource)
-    if resource ~= 'qbtarget' then return end
+    if resource ~= 'kora_target' then return end
     -- Registration IDs belong to that target instance and may be reused after restart.
     licenceTarget = nil
     for _, clerk in ipairs(recordsClerks) do clerk.target = nil end
 end)
 
 AddEventHandler('onClientResourceStart', function(resource)
-    if resource ~= 'qbtarget' then return end
+    if resource ~= 'kora_target' then return end
     registerLicenceTarget()
     for _, clerk in ipairs(recordsClerks) do registerRecordsClerk(clerk) end
 end)

@@ -1,7 +1,7 @@
-# qbmdt
+# kora_mdt
 
-`qbmdt` is the first-party qbcore2 records and operations terminal. It uses
-qblib's AppShell, qbsql migrations, and server-owned role checks.
+`kora_mdt` is the first-party qbcore2 records and operations terminal. It uses
+kora_lib's AppShell, kora_sql migrations, and server-owned role checks.
 
 ## Current features
 
@@ -29,7 +29,7 @@ event; hiding a page in the client is never treated as authorization.
 
 ## Database
 
-Migrations run automatically through qbsql when the resource starts. Version 2
+Migrations run automatically through kora_sql when the resource starts. Version 2
 adds reports, cases, warrants, BOLOs, report-to-case links, and the audit log.
 
 ## Tests
