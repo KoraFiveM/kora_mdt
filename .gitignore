@@ -1,5 +1,5 @@
 *.log
 
-# Generated per-server qblib configuration overrides.
+# Generated per-server kora_lib configuration overrides.
 config.local.lua
 config.local.lua.bak

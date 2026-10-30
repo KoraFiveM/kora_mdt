@@ -143,7 +143,7 @@ h.test('weapon licence target covers the Ammu-Nation building and every firing t
     end
 end)
 
-h.test('/mdt enters through the authenticated qblib event channel', function()
+h.test('/mdt enters through the authenticated kora_lib event channel', function()
     reset()
     commands[Config.mdt.command]()
     h.assertEqual(#serverEvents, 1)
@@ -265,7 +265,7 @@ h.test('zero spawned range targets cancels the server session', function()
     h.assertEqual(serverEvents[1].name, 'qbmdt:server:cancelWeaponLicence')
 end)
 
-h.test('weapon licence result removes every target through qblib entities', function()
+h.test('weapon licence result removes every target through kora_lib entities', function()
     reset()
     local nextEntity = 100
     entityFactory = function()

@@ -46,7 +46,7 @@ local function resetObservations()
     handle.onLicenceWrite = nil
 end
 
-h.test('all remote gameplay events use bounded qblib ingress', function()
+h.test('all remote gameplay events use bounded kora_lib ingress', function()
     local expected = {
         ['qbmdt:server:open'] = true,
         ['qbmdt:server:beginAnalysis'] = true,
@@ -65,7 +65,7 @@ h.test('all remote gameplay events use bounded qblib ingress', function()
     local startLimit = QB.events.registry['qbmdt:server:startWeaponLicence'].options.rateLimit
     h.assertEqual(startLimit.max, 1)
     h.assertEqual(startLimit.window, 2000)
-    h.assertTrue(next(handle.netHandlers) == nil, 'gameplay ingress must not bypass qblib registration')
+    h.assertTrue(next(handle.netHandlers) == nil, 'gameplay ingress must not bypass kora_lib registration')
 end)
 
 h.test('MDT open returns the authorised role and explains access denial', function()
