@@ -38,6 +38,11 @@ Config.mdt = {
             },
             thickness = 4.0,
         },
+        -- The range counter.  The target prompt is a small sphere here so it does
+        -- not also appear on the Ammu-Nation vending machine inside the building.
+        -- Set to nil to fall back to targeting the whole zone polygon above.
+        interactionPoint = vector3(22.5, -1104.5, 29.8),
+        interactionRadius = 1.5,
         interactionDistance = 2.0,
         shots = 10,
         trainingTimeout = 120000,
@@ -95,6 +100,15 @@ if QB and QB.config and QB.config.adopt then
             { value = 'npc', label = 'Records clerk (NPC)' },
             { value = 'mdt', label = 'MDT terminal' },
         },
+    })
+    Config.mdt.weaponLicence.interactionPoint = QB.config.vector3(Config.mdt.weaponLicence.interactionPoint, {
+        label = 'Weapon licence counter',
+        description = 'Sets the world position of the weapon-licence range counter where players start the test. The target prompt only appears around this point, so it does not show on other targets in the same building such as the vending machine.',
+    })
+    Config.mdt.weaponLicence.interactionRadius = QB.config.number(Config.mdt.weaponLicence.interactionRadius, {
+        label = 'Weapon licence counter radius',
+        description = 'Sets the radius, in game units, of the target sphere around the weapon-licence counter point. Keep it small so neighbouring targets are not included.',
+        min = 0.5,
     })
 
     Config = QB.config.adopt(Config, { descriptions = {

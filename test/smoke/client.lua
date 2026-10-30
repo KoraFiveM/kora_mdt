@@ -55,6 +55,11 @@ _G.QB = {
 
 local exportImpls = {
     kora_target = {
+        addSphereZone = function(options)
+            licenceZone = options
+            licenceRegistrations, nextTargetId = licenceRegistrations + 1, nextTargetId + 1
+            return nextTargetId
+        end,
         addPolyZone = function(options)
             licenceZone = options
             licenceRegistrations, nextTargetId = licenceRegistrations + 1, nextTargetId + 1
@@ -129,13 +134,10 @@ h.test('weapon licence target covers the Ammu-Nation building and every firing t
     local minZ = math.huge
     for _, point in ipairs(definition.zone.points) do minZ = math.min(minZ, point.z) end
     local maxZ = minZ + definition.zone.thickness
-    h.assertEqual(licenceZone.points, definition.zone.points)
-    h.assertEqual(licenceZone.thickness, definition.zone.thickness)
-    h.assertEqual(licenceZone.distance, definition.interactionDistance)
-    h.assertTrue(contains(licenceZone.points, definition.range), 'the counter marker must be inside the target zone')
+    h.assertTrue(contains(definition.zone.points, definition.range), 'the counter marker must be inside the target zone')
     for index, offset in ipairs(definition.targetOffsets) do
         local target = vector3(definition.range.x + offset.x, definition.range.y + offset.y, definition.range.z + offset.z)
-        h.assertTrue(contains(licenceZone.points, target), ('target %d must be inside the building target zone'):format(index))
+        h.assertTrue(contains(definition.zone.points, target), ('target %d must be inside the building target zone'):format(index))
         h.assertTrue(target.z >= minZ and target.z <= maxZ,
             ('target %d must be inside the building height band'):format(index))
     end
@@ -185,8 +187,9 @@ h.test('qbtarget restart restores range and clerk options without respawning the
     h.assertEqual(clerkRegistrations, beforeClerks + #Config.mdt.firearms.shopRecords)
     h.assertEqual(recordsClerk, ped)
     h.assertEqual(clerkSpawns, spawns)
-    h.assertEqual(licenceZone.points, Config.mdt.weaponLicence.zone.points)
-    h.assertEqual(licenceZone.thickness, Config.mdt.weaponLicence.zone.thickness)
+    h.assertEqual(licenceZone.coords, Config.mdt.weaponLicence.interactionPoint)
+    h.assertEqual(licenceZone.radius, Config.mdt.weaponLicence.interactionRadius)
+    h.assertTrue(licenceZone.points == nil, 'point mode must not register the building polygon')
     h.assertEqual(licenceZone.distance, Config.mdt.weaponLicence.interactionDistance)
     h.assertEqual(licenceZone.options[1].label, 'start weapon licence range')
     h.assertEqual(licenceZone.options[1].icon, 'crosshair')
@@ -200,6 +203,26 @@ h.test('qbtarget restart restores range and clerk options without respawning the
     recordsClerkOption.onSelect()
     h.assertEqual(inputDialog.title, Config.mdt.firearms.shopRecords[1].label)
     h.assertEqual(inputDialog.fields[1].id, 'serial')
+end)
+
+h.test('without an interaction point the licence target falls back to the building polygon', function()
+    local licence = Config.mdt.weaponLicence
+    local point = licence.interactionPoint
+    licence.interactionPoint = nil
+    hooks.onClientResourceStop('kora_target')
+    licenceZone = nil
+    hooks.onClientResourceStart('kora_target')
+    licence.interactionPoint = point
+    h.assertEqual(licenceZone.points, licence.zone.points)
+    h.assertEqual(licenceZone.thickness, licence.zone.thickness)
+    h.assertEqual(licenceZone.distance, licence.interactionDistance)
+    h.assertEqual(licenceZone.options[1].label, 'start weapon licence range')
+    h.assertTrue(licenceZone.coords == nil)
+end)
+
+h.test('interaction point lies inside the building polygon', function()
+    local licence = Config.mdt.weaponLicence
+    h.assertTrue(contains(licence.zone.points, licence.interactionPoint), 'interaction point must be inside the zone')
 end)
 
 h.test('target recovery ignores foreign and repeated starts but supports another restart', function()

@@ -116,11 +116,26 @@ local licenceTarget, recordsClerks = nil, {}
 
 local function registerLicenceTarget()
     if licenceTarget or GetResourceState('kora_target') ~= 'started' then return end
+    local licence = C.weaponLicence
+    local options = { { label = 'start weapon licence range', icon = 'crosshair', onSelect = function() QB.events.trigger('qbmdt:server:startWeaponLicence') end } }
+
+    -- A point keeps the prompt off other targets inside the building (e.g. the vending machine).
+    if licence.interactionPoint then
+        licenceTarget = exports.kora_target:addSphereZone({
+            coords = licence.interactionPoint,
+            radius = licence.interactionRadius or 1.5,
+            distance = licence.interactionDistance,
+            options = options,
+        })
+        return
+    end
+
+    -- Legacy behaviour when no interaction point is configured.
     licenceTarget = exports.kora_target:addPolyZone({
-        points = C.weaponLicence.zone.points,
-        thickness = C.weaponLicence.zone.thickness,
-        distance = C.weaponLicence.interactionDistance,
-        options = { { label = 'start weapon licence range', icon = 'crosshair', onSelect = function() QB.events.trigger('qbmdt:server:startWeaponLicence') end } },
+        points = licence.zone.points,
+        thickness = licence.zone.thickness,
+        distance = licence.interactionDistance,
+        options = options,
     })
 end
 
