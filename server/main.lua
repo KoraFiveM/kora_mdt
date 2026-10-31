@@ -192,7 +192,7 @@ QB.callback.register('qbmdt:server:vehicle', function(src, plate)
     plate = type(plate) == 'string' and plate:gsub('^%s+', ''):gsub('%s+$', ''):upper() or ''
     if plate == '' or #plate > 15 then return nil, 'invalid plate' end
     local vehicle = QB.sql.single([[SELECT v.`plate`,v.`model`,v.`citizenid`,v.`state`,v.`garage_id`,v.`impound_lot`,p.`name` AS `owner_name`
-        FROM `player_vehicles` v LEFT JOIN `players` p ON p.`citizenid` = v.`citizenid`
+        FROM `player_vehicles` v LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = v.`citizenid` COLLATE utf8mb4_unicode_ci
         WHERE v.`plate` = ? AND v.`deleted_at` IS NULL]], { plate })
     if vehicle then
         vehicle.bolos = QB.sql.query([[SELECT `id`,`title`,`description`,`expires_at` FROM `qbmdt_bolos`
@@ -328,7 +328,7 @@ QB.callback.register('qbmdt:server:searchVehicles', function(src, query)
     local term = likeTerm(query)
     if not term then return nil, 'enter at least two characters' end
     return QB.sql.query(([[SELECT v.`plate`,v.`model`,v.`citizenid`,v.`state`,p.`name` AS `owner_name`
-        FROM `player_vehicles` v LEFT JOIN `players` p ON p.`citizenid` = v.`citizenid` AND p.`deleted_at` IS NULL
+        FROM `player_vehicles` v LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = v.`citizenid` COLLATE utf8mb4_unicode_ci AND p.`deleted_at` IS NULL
         WHERE v.`deleted_at` IS NULL AND (LOCATE(?,v.`plate`) > 0 OR LOCATE(?,v.`model`) > 0
             OR LOCATE(?,COALESCE(v.`citizenid`,'')) > 0 OR LOCATE(?,COALESCE(p.`name`,'')) > 0)
         ORDER BY v.`plate` LIMIT %d]]):format(C.operations.searchLimit), { term, term, term, term }) or {}
@@ -338,7 +338,7 @@ QB.callback.register('qbmdt:server:reports', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     return QB.sql.query(([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`charge_code`,c.`label` AS `charge_label`,
         r.`author_citizenid`,r.`updated_at`,p.`name` AS `subject_name`
-        FROM `qbmdt_reports` r LEFT JOIN `players` p ON p.`citizenid` = r.`subject_citizenid`
+        FROM `qbmdt_reports` r LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
         LEFT JOIN `qbmdt_charges` c ON c.`code` = r.`charge_code`
         ORDER BY (r.`status` = 'open') DESC,r.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {}
 end)
@@ -348,7 +348,7 @@ QB.callback.register('qbmdt:server:reportOptions', function(src)
     return QB.sql.query([[SELECT r.`id`,r.`title`,
         COALESCE(p.`name`,r.`subject_citizenid`,'Unknown') AS `subject`
         FROM `qbmdt_reports` r
-        LEFT JOIN `players` p ON p.`citizenid` = r.`subject_citizenid`
+        LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
         ORDER BY r.`created_at` DESC,r.`id` DESC]]) or {}
 end)
 
@@ -360,8 +360,8 @@ QB.callback.register('qbmdt:server:report', function(src, value)
         r.`author_citizenid`,DATE_FORMAT(r.`created_at`, '%Y-%m-%d %H:%i:%s') AS `created_at`,
         p.`name` AS `subject_name`,a.`name` AS `author_name`,c.`label` AS `charge_label`,c.`fine`
         FROM `qbmdt_reports` r
-        LEFT JOIN `players` p ON p.`citizenid` = r.`subject_citizenid`
-        LEFT JOIN `players` a ON a.`citizenid` = r.`author_citizenid`
+        LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
+        LEFT JOIN `players` a ON a.`citizenid` COLLATE utf8mb4_unicode_ci = r.`author_citizenid` COLLATE utf8mb4_unicode_ci
         LEFT JOIN `qbmdt_charges` c ON c.`code` = r.`charge_code` WHERE r.`id` = ?]], { id })
 end)
 
@@ -428,7 +428,7 @@ QB.callback.register('qbmdt:server:case', function(src, value)
     local row = QB.sql.single([[SELECT c.`id`,c.`title`,c.`summary`,c.`priority`,c.`status`,c.`lead_citizenid`,
         DATE_FORMAT(c.`created_at`, '%Y-%m-%d %H:%i:%s') AS `created_at`,
         DATE_FORMAT(c.`updated_at`, '%Y-%m-%d %H:%i:%s') AS `updated_at`,p.`name` AS `lead_name` FROM `qbmdt_cases` c
-        LEFT JOIN `players` p ON p.`citizenid` = c.`lead_citizenid` WHERE c.`id` = ?]], { id })
+        LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = c.`lead_citizenid` COLLATE utf8mb4_unicode_ci WHERE c.`id` = ?]], { id })
     if not row then return nil, 'case not found' end
     row.reports = QB.sql.query([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,
         DATE_FORMAT(r.`updated_at`, '%Y-%m-%d %H:%i:%s') AS `updated_at`
@@ -509,7 +509,7 @@ QB.callback.register('qbmdt:server:warrants', function(src)
     return QB.sql.query(([[SELECT w.`id`,w.`citizenid`,w.`reason`,
         IF(w.`status` = 'active' AND w.`expires_at` <= NOW(),'expired',w.`status`) AS `status`,
         DATE_FORMAT(w.`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,w.`author_citizenid`,p.`name` AS `subject_name`
-        FROM `qbmdt_warrants` w LEFT JOIN `players` p ON p.`citizenid` = w.`citizenid`
+        FROM `qbmdt_warrants` w LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = w.`citizenid` COLLATE utf8mb4_unicode_ci
         ORDER BY (w.`status` = 'active' AND w.`expires_at` > NOW()) DESC,w.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {}
 end)
 
