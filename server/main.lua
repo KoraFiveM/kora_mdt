@@ -47,6 +47,35 @@ end
 local function personExists(cid)
     return cid and QB.sql.single('SELECT `citizenid` FROM `players` WHERE `citizenid` = ? AND `deleted_at` IS NULL', { cid }) ~= nil
 end
+-- Everything the terminal shows as a time goes through formatTime so the NUI
+-- only receives plain strings; raw TIMESTAMP columns can arrive as tables.
+local TIME_KEYS = { created_at = true, updated_at = true, expires_at = true, purchased_at = true, last_updated = true }
+local function ts(column) return 'CAST(' .. column .. ' AS CHAR)' end
+local function formatTime(value)
+    local y, mo, d, h, mi, se
+    if type(value) == 'number' then
+        local t = os.date('!*t', math.floor(value > 1e11 and value / 1000 or value))
+        y, mo, d, h, mi, se = t.year, t.month, t.day, t.hour, t.min, t.sec
+    elseif type(value) == 'string' then
+        y, mo, d, h, mi, se = value:match('^(%d%d%d%d)-(%d%d)-(%d%d)[T ]?(%d*):?(%d*):?(%d*)')
+    elseif type(value) == 'table' and value.year then
+        y, mo, d, h, mi, se = value.year, value.month, value.day, value.hour, value.min or value.minute, value.sec or value.second
+    end
+    if not y then return nil end
+    local parts = { YYYY = y, MM = mo, DD = d, HH = h, mm = mi, ss = se }
+    return (tostring(C.dateFormat or 'YYYY-MM-DD HH:mm'):gsub('%a+', function(token)
+        if parts[token] == nil then return token end
+        return ('%02d'):format(tonumber(parts[token]) or 0)
+    end))
+end
+local function withTimes(data)
+    if type(data) ~= 'table' then return data end
+    for key, value in pairs(data) do
+        if TIME_KEYS[key] then data[key] = formatTime(value)
+        elseif type(value) == 'table' then withTimes(value) end
+    end
+    return data
+end
 local function audit(src, action, targetType, targetId, details)
     local actor = citizenId(src)
     if not actor then return end
@@ -171,9 +200,9 @@ QB.callback.register('qbmdt:server:person', function(src, wanted)
     }
     if r == 'police' or r == 'judge' then
         out.weaponLicence = licenseNumber(wanted)
-        out.firearms = QB.sql.query('SELECT `serial`,`weapon_name`,`purchased_at` FROM `qbmdt_firearms` WHERE `owner_citizenid` = ? ORDER BY `purchased_at` DESC', { wanted }) or {}
-        out.criminal = QB.sql.query('SELECT `charge_code`,`notes`,`created_at` FROM `qbmdt_criminal_records` WHERE `citizenid` = ? ORDER BY `created_at` DESC', { wanted }) or {}
-        out.reports = QB.sql.query([[SELECT `id`,`title`,`status`,`created_at` FROM `qbmdt_reports`
+        out.firearms = QB.sql.query('SELECT `serial`,`weapon_name`,' .. ts('`purchased_at`') .. ' AS `purchased_at` FROM `qbmdt_firearms` WHERE `owner_citizenid` = ? ORDER BY `purchased_at` DESC', { wanted }) or {}
+        out.criminal = QB.sql.query('SELECT `charge_code`,`notes`,' .. ts('`created_at`') .. ' AS `created_at` FROM `qbmdt_criminal_records` WHERE `citizenid` = ? ORDER BY `created_at` DESC', { wanted }) or {}
+        out.reports = QB.sql.query([[SELECT `id`,`title`,`status`,]] .. ts('`created_at`') .. [[ AS `created_at` FROM `qbmdt_reports`
             WHERE `subject_citizenid` = ? ORDER BY `created_at` DESC LIMIT 25]], { wanted }) or {}
         out.warrants = QB.sql.query([[SELECT `id`,`reason`,`expires_at` FROM `qbmdt_warrants`
             WHERE `citizenid` = ? AND `status` = 'active' AND `expires_at` > NOW() ORDER BY `expires_at`]], { wanted }) or {}
@@ -182,9 +211,9 @@ QB.callback.register('qbmdt:server:person', function(src, wanted)
             AND (`expires_at` IS NULL OR `expires_at` > NOW()) ORDER BY `created_at` DESC]], { wanted }) or {}
     end
     if r == 'medical' or r == 'judge' then
-        out.medical = QB.sql.query('SELECT `notes`,`created_at` FROM `qbmdt_medical_records` WHERE `citizenid` = ? ORDER BY `created_at` DESC', { wanted }) or {}
+        out.medical = QB.sql.query('SELECT `notes`,' .. ts('`created_at`') .. ' AS `created_at` FROM `qbmdt_medical_records` WHERE `citizenid` = ? ORDER BY `created_at` DESC', { wanted }) or {}
     end
-    return out
+    return withTimes(out)
 end)
 
 QB.callback.register('qbmdt:server:vehicle', function(src, plate)
@@ -308,8 +337,8 @@ QB.callback.register('qbmdt:server:dashboard', function(src)
         (SELECT COUNT(*) FROM `qbmdt_cases` WHERE `status` <> 'closed') AS `open_cases`,
         (SELECT COUNT(*) FROM `qbmdt_warrants` WHERE `status` = 'active' AND `expires_at` > NOW()) AS `active_warrants`,
         (SELECT COUNT(*) FROM `qbmdt_bolos` WHERE `status` = 'active' AND (`expires_at` IS NULL OR `expires_at` > NOW())) AS `active_bolos`]]) or {}
-    counts.recent = QB.sql.query([[SELECT `id`,`title`,`status`,`author_citizenid`,`updated_at`
-        FROM `qbmdt_reports` ORDER BY `updated_at` DESC LIMIT 8]]) or {}
+    counts.recent = withTimes(QB.sql.query([[SELECT `id`,`title`,`status`,`author_citizenid`,]] .. ts('`updated_at`') .. [[ AS `updated_at`
+        FROM `qbmdt_reports` ORDER BY `updated_at` DESC LIMIT 8]]) or {})
     return counts
 end)
 
@@ -317,10 +346,10 @@ QB.callback.register('qbmdt:server:searchPeople', function(src, query)
     if not role(src) then return nil, 'not authorised' end
     local term = likeTerm(query)
     if not term then return nil, 'enter at least two characters' end
-    return QB.sql.query(([[SELECT `citizenid`,`name`,`phone_number`,`last_updated`
+    return withTimes(QB.sql.query(([[SELECT `citizenid`,`name`,`phone_number`,`last_updated`
         FROM `players` WHERE `deleted_at` IS NULL
         AND (LOCATE(?,`citizenid`) > 0 OR LOCATE(?,`name`) > 0 OR LOCATE(?,COALESCE(`phone_number`,'')) > 0)
-        ORDER BY `name` LIMIT %d]]):format(C.operations.searchLimit), { term, term, term }) or {}
+        ORDER BY `name` LIMIT %d]]):format(C.operations.searchLimit), { term, term, term }) or {})
 end)
 
 QB.callback.register('qbmdt:server:searchVehicles', function(src, query)
@@ -336,11 +365,11 @@ end)
 
 QB.callback.register('qbmdt:server:reports', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return QB.sql.query(([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`charge_code`,c.`label` AS `charge_label`,
-        r.`author_citizenid`,r.`updated_at`,p.`name` AS `subject_name`
+    return withTimes(QB.sql.query(([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`charge_code`,c.`label` AS `charge_label`,
+        r.`author_citizenid`,]] .. ts('r.`updated_at`') .. [[ AS `updated_at`,p.`name` AS `subject_name`
         FROM `qbmdt_reports` r LEFT JOIN `players` p ON p.`citizenid` = r.`subject_citizenid`
         LEFT JOIN `qbmdt_charges` c ON c.`code` = r.`charge_code`
-        ORDER BY (r.`status` = 'open') DESC,r.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {}
+        ORDER BY (r.`status` = 'open') DESC,r.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {})
 end)
 
 QB.callback.register('qbmdt:server:reportOptions', function(src)
@@ -356,13 +385,13 @@ QB.callback.register('qbmdt:server:report', function(src, value)
     if not can(src, 'police') then return nil, 'not authorised' end
     local id = cleanId(value)
     if not id then return nil, 'invalid report' end
-    return QB.sql.single([[SELECT r.`id`,r.`title`,r.`narrative`,r.`status`,r.`subject_citizenid`,r.`charge_code`,
+    return withTimes(QB.sql.single([[SELECT r.`id`,r.`title`,r.`narrative`,r.`status`,r.`subject_citizenid`,r.`charge_code`,
         r.`author_citizenid`,DATE_FORMAT(r.`created_at`, '%Y-%m-%d %H:%i:%s') AS `created_at`,
         p.`name` AS `subject_name`,a.`name` AS `author_name`,c.`label` AS `charge_label`,c.`fine`
         FROM `qbmdt_reports` r
         LEFT JOIN `players` p ON p.`citizenid` = r.`subject_citizenid`
         LEFT JOIN `players` a ON a.`citizenid` = r.`author_citizenid`
-        LEFT JOIN `qbmdt_charges` c ON c.`code` = r.`charge_code` WHERE r.`id` = ?]], { id })
+        LEFT JOIN `qbmdt_charges` c ON c.`code` = r.`charge_code` WHERE r.`id` = ?]], { id }))
 end)
 
 QB.callback.register('qbmdt:server:createReport', function(src, input)
@@ -374,7 +403,11 @@ QB.callback.register('qbmdt:server:createReport', function(src, input)
     local chargeSelection = cleanText(input.charge, 128, false)
     local chargeCode
     if not title or not narrative then return nil, 'title and narrative are required' end
-    if input.citizenid and input.citizenid ~= '' and not personExists(subject) then return nil, 'citizen not found' end
+    local rules = C.reports or {}
+    local subjectGiven = type(input.citizenid) == 'string' and input.citizenid:match('%S') ~= nil
+    if not subjectGiven and rules.requireSubject then return nil, 'Subject citizen ID is required.' end
+    if subjectGiven and not personExists(subject) then return nil, 'Citizen ID not found. Check the subject citizen ID.' end
+    if chargeSelection == '' and rules.requireCharge then return nil, 'A charge is required.' end
     if chargeSelection ~= '' then
         local charge
         for _, cached in ipairs(chargeCache) do
@@ -394,7 +427,7 @@ QB.callback.register('qbmdt:server:createReport', function(src, input)
         (`title`,`narrative`,`subject_citizenid`,`charge_code`,`author_citizenid`) VALUES (?,?,?,?,?)]],
         { title, narrative, subject, chargeCode, author })
     if not id then return nil, err or 'database error' end
-    if chargeCode then
+    if chargeCode and subject then
         QB.sql.insert([[INSERT INTO `qbmdt_criminal_records`
             (`citizenid`,`charge_code`,`notes`,`author_citizenid`) VALUES (?,?,?,?)]],
             { subject, chargeCode, ('Report #%s: %s'):format(id, title):sub(1, 1000), author })
@@ -416,9 +449,9 @@ end)
 
 QB.callback.register('qbmdt:server:cases', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return QB.sql.query(([[SELECT c.`id`,c.`title`,c.`priority`,c.`status`,c.`lead_citizenid`,c.`updated_at`,
+    return withTimes(QB.sql.query(([[SELECT c.`id`,c.`title`,c.`priority`,c.`status`,c.`lead_citizenid`,]] .. ts('c.`updated_at`') .. [[ AS `updated_at`,
         (SELECT COUNT(*) FROM `qbmdt_case_reports` cr WHERE cr.`case_id` = c.`id`) AS `report_count`
-        FROM `qbmdt_cases` c ORDER BY (c.`status` <> 'closed') DESC,c.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {}
+        FROM `qbmdt_cases` c ORDER BY (c.`status` <> 'closed') DESC,c.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {})
 end)
 
 QB.callback.register('qbmdt:server:case', function(src, value)
@@ -430,10 +463,12 @@ QB.callback.register('qbmdt:server:case', function(src, value)
         DATE_FORMAT(c.`updated_at`, '%Y-%m-%d %H:%i:%s') AS `updated_at`,p.`name` AS `lead_name` FROM `qbmdt_cases` c
         LEFT JOIN `players` p ON p.`citizenid` = c.`lead_citizenid` WHERE c.`id` = ?]], { id })
     if not row then return nil, 'case not found' end
+    withTimes(row)
     row.reports = QB.sql.query([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,
         DATE_FORMAT(r.`updated_at`, '%Y-%m-%d %H:%i:%s') AS `updated_at`
         FROM `qbmdt_case_reports` cr JOIN `qbmdt_reports` r ON r.`id` = cr.`report_id`
         WHERE cr.`case_id` = ? ORDER BY r.`updated_at` DESC]], { id }) or {}
+    withTimes(row.reports)
     return row
 end)
 
@@ -506,11 +541,11 @@ end)
 
 QB.callback.register('qbmdt:server:warrants', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return QB.sql.query(([[SELECT w.`id`,w.`citizenid`,w.`reason`,
+    return withTimes(QB.sql.query(([[SELECT w.`id`,w.`citizenid`,w.`reason`,
         IF(w.`status` = 'active' AND w.`expires_at` <= NOW(),'expired',w.`status`) AS `status`,
         DATE_FORMAT(w.`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,w.`author_citizenid`,p.`name` AS `subject_name`
         FROM `qbmdt_warrants` w LEFT JOIN `players` p ON p.`citizenid` = w.`citizenid`
-        ORDER BY (w.`status` = 'active' AND w.`expires_at` > NOW()) DESC,w.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {}
+        ORDER BY (w.`status` = 'active' AND w.`expires_at` > NOW()) DESC,w.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {})
 end)
 
 QB.callback.register('qbmdt:server:createWarrant', function(src, input)
@@ -541,10 +576,10 @@ end)
 
 QB.callback.register('qbmdt:server:bolos', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return QB.sql.query(([[SELECT `id`,`subject_type`,`subject_identifier`,`title`,`description`,
+    return withTimes(QB.sql.query(([[SELECT `id`,`subject_type`,`subject_identifier`,`title`,`description`,
         IF(`status` = 'active' AND `expires_at` IS NOT NULL AND `expires_at` <= NOW(),'expired',`status`) AS `status`,
-        `author_citizenid`,DATE_FORMAT(`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,`updated_at` FROM `qbmdt_bolos`
-        ORDER BY (`status` = 'active' AND (`expires_at` IS NULL OR `expires_at` > NOW())) DESC,`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {}
+        `author_citizenid`,DATE_FORMAT(`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,]] .. ts('`updated_at`') .. [[ AS `updated_at` FROM `qbmdt_bolos`
+        ORDER BY (`status` = 'active' AND (`expires_at` IS NULL OR `expires_at` > NOW())) DESC,`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {})
 end)
 
 QB.callback.register('qbmdt:server:createBolo', function(src, input)

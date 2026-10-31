@@ -104,17 +104,22 @@ h.test('operational callbacks are role-gated and citizen searches are bounded', 
     h.assertEqual(captured.params[1], 'Jane_20%', 'search input must stay a bound parameter rather than SQL syntax')
 end)
 
+local function readyMdt()
+    handle.sqlQuery = function() return { { code = 'SPD-01', label = 'Speeding', fine = 250 } } end
+    handle.event('qbmdt:server:databaseReady')
+end
+
 h.test('incident reports validate server records, create charge history, and audit', function()
     resetObservations()
     handle.ensurePlayer(94)
+    readyMdt()
     handle.sqlSingle = function(query, params)
         if query:find('FROM `players`', 1, true) then return { citizenid = params[1] } end
-        if query:find('FROM `qbmdt_charges`', 1, true) and params[1] == 'SPD-01' then return { code = 'SPD-01' } end
     end
     local create = QB.callback.registry['qbmdt:server:createReport']
     local id, err = create(94, { title = 'Traffic stop', narrative = 'Vehicle failed to stop.', citizenid = 'CID000777', charge = 'bad' })
     h.assertEqual(id, nil)
-    h.assertEqual(err, 'unknown charge')
+    h.assertEqual(err, 'Select a charge from the suggestions.')
 
     id, err = create(94, { title = 'Traffic stop', narrative = 'Vehicle failed to stop.', citizenid = 'CID000777', charge = 'spd-01' })
     h.assertEqual(id, 1)
@@ -123,6 +128,42 @@ h.test('incident reports validate server records, create charge history, and aud
         'charged report must be reflected in criminal history')
     h.assertTrue(handle.sqlInserts[3].query:find('qbmdt_audit_log', 1, true) ~= nil,
         'report creation must be audited')
+end)
+
+h.test('report subject and charge are optional by default and enforced by config', function()
+    resetObservations()
+    handle.ensurePlayer(94)
+    readyMdt()
+    handle.sqlSingle = function(query, params)
+        if query:find('FROM `players`', 1, true) and params[1] == 'CID000777' then return { citizenid = params[1] } end
+    end
+    local create = QB.callback.registry['qbmdt:server:createReport']
+    local base = { title = 'Noise complaint', narrative = 'Loud party.' }
+    h.assertEqual(create(94, base), 1)
+    h.assertEqual(#handle.sqlInserts >= 1 and handle.sqlInserts[1].query:find('criminal', 1, true), nil)
+
+    local _, err = create(94, { title = 'x', narrative = 'y', citizenid = 'CID999999' })
+    h.assertTrue(err:find('not found', 1, true) ~= nil, 'unknown subject must be rejected')
+
+    Config.mdt.reports.requireSubject = true
+    _, err = create(94, base)
+    h.assertEqual(err, 'Subject citizen ID is required.')
+    Config.mdt.reports.requireSubject = false
+    Config.mdt.reports.requireCharge = true
+    _, err = create(94, { title = 'x', narrative = 'y', citizenid = 'CID000777' })
+    h.assertEqual(err, 'A charge is required.')
+    Config.mdt.reports.requireCharge = false
+end)
+
+h.test('every list returns readable time strings, never tables', function()
+    resetObservations()
+    handle.ensurePlayer(94)
+    handle.sqlQuery = function() return { { id = 1, updated_at = { year = 2026, month = 10, day = 31, hour = 22, min = 5 } },
+        { id = 2, updated_at = '2026-10-31 22:16:09' }, { id = 3, updated_at = 1793484969000 } } end
+    local rows = QB.callback.registry['qbmdt:server:reports'](94)
+    h.assertEqual(rows[1].updated_at, '2026-10-31 22:05')
+    h.assertEqual(rows[2].updated_at, '2026-10-31 22:16')
+    h.assertEqual(type(rows[3].updated_at), 'string')
 end)
 
 h.test('warrant and BOLO state changes use server-owned transitions and audit', function()

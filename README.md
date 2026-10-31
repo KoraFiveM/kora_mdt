@@ -27,6 +27,11 @@ Police, ambulance, and judge jobs are configured in `config.lua`. When
 `requireOnDuty` is enabled, the server checks duty state for every callback and
 event; hiding a page in the client is never treated as authorization.
 
+## Reports and dates
+
+- `Config.mdt.reports.requireSubject` / `requireCharge` (both `false` by default) make the server reject incident reports without an existing subject citizen ID or a catalogue charge. A subject or charge that is entered is always validated.
+- `Config.mdt.dateFormat` (default `YYYY-MM-DD HH:mm`; tokens `YYYY MM DD HH mm ss`) controls every date/time shown in the terminal.
+
 ## Database
 
 Migrations run automatically through kora_sql when the resource starts. Version 2

@@ -71,6 +71,11 @@ Config.mdt = {
         boloDefaultDays = 7,
         boloMaxDays = 30,
     },
+    dateFormat = 'YYYY-MM-DD HH:mm', -- tokens: YYYY MM DD HH mm ss; used for every date/time shown in the MDT
+    reports = {
+        requireSubject = false,         -- true = incident reports must name an existing subject citizen ID
+        requireCharge = false,          -- true = incident reports must carry a charge from the charge list
+    },
     charges = {
         { code = 'SPD-01', label = 'Speeding', fine = 250 },
         { code = 'WPN-01', label = 'Unlawful discharge of a firearm', fine = 1500 },
@@ -138,6 +143,9 @@ if QB and QB.config and QB.config.adopt then
         ['mdt.operations.warrantMaxDays'] = 'Sets the longest warrant duration, in days, that the server will accept. Longer submitted values are reduced to this limit before the warrant is stored.',
         ['mdt.operations.boloDefaultDays'] = 'Sets the default number of days prefilled when an authorised user creates a BOLO. The submitted duration is clamped between one day and the configured BOLO maximum.',
         ['mdt.operations.boloMaxDays'] = 'Sets the longest BOLO duration, in days, that the server will accept. Longer submitted values are reduced to this limit before the BOLO is stored.',
+        ['mdt.dateFormat'] = 'Sets how every MDT date and time is displayed. Use the tokens YYYY, MM, DD, HH, mm and ss, for example DD/MM/YYYY HH:mm. Times are shown in the database server time zone.',
+        ['mdt.reports.requireSubject'] = 'When enabled the server rejects incident reports that do not name an existing subject citizen ID. Leave it off to allow reports with no suspect.',
+        ['mdt.reports.requireCharge'] = 'When enabled the server rejects incident reports without a charge from the charge catalogue. A charge that is entered is always validated against the catalogue.',
         ['mdt.charges'] = 'Defines the charge catalogue seeded into the MDT database when it becomes ready. Each numbered row needs a unique code, display label, and non-negative fine; existing database rows with the same code are left intact.',
     } })
 end
