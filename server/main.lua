@@ -1,5 +1,7 @@
 local C = Config.mdt
 local training = {}
+local databaseReady = false
+local chargeCache = {}
 
 local function player(src) return exports.kora_core:getPlayerData(src) end
 local function citizenId(src)
@@ -17,6 +19,12 @@ end
 local function can(src, domain)
     local r = role(src)
     return r == 'judge' or r == domain
+end
+local function isPoliceBoss(src)
+    local job = exports.kora_core:getJob(src) or {}
+    return C.roles.policeJobs[job.name] == true
+        and (not C.roles.requireOnDuty or job.onduty == true)
+        and (job.isboss == true or (type(job.grade) == 'table' and job.grade.isboss == true))
 end
 local function cleanCid(value)
     return type(value) == 'string' and value:match('^[%w%-]+$') and value or nil
@@ -98,9 +106,20 @@ end
 
 AddEventHandler('qbmdt:server:databaseReady', function()
     for _, charge in ipairs(C.charges or {}) do
-        QB.sql.execute('INSERT IGNORE INTO `qbmdt_charges` (`code`,`label`,`fine`) VALUES (?,?,?)',
+        local _, err = QB.sql.execute('INSERT IGNORE INTO `qbmdt_charges` (`code`,`label`,`fine`) VALUES (?,?,?)',
             { charge.code, charge.label, math.max(0, math.floor(tonumber(charge.fine) or 0)) })
+        if err then
+            print(('^1[qbmdt]^7 charge seed failed for %s: %s'):format(charge.code, tostring(err)))
+            return
+        end
     end
+    local rows, err = QB.sql.query('SELECT `code`,`label`,`fine` FROM `qbmdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`')
+    if not rows then
+        print(('^1[qbmdt]^7 charge cache load failed: %s'):format(tostring(err or 'database query failed')))
+        return
+    end
+    chargeCache = rows
+    databaseReady = true
 end)
 
 -- A civilian weapons shop is licence-only. The hook executes before money or
@@ -185,19 +204,71 @@ end)
 
 QB.callback.register('qbmdt:server:charges', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return QB.sql.query('SELECT `code`,`label`,`fine` FROM `qbmdt_charges` WHERE `active` = 1 ORDER BY `code`') or {}
+    if not databaseReady then return nil, 'MDT database is still starting. Try again shortly.' end
+    return chargeCache
+end)
+
+QB.callback.register('qbmdt:server:canManageCharges', function(src)
+    return isPoliceBoss(src)
+end)
+
+QB.callback.register('qbmdt:server:manageCharges', function(src)
+    if not isPoliceBoss(src) then return nil, 'not authorised' end
+    if not databaseReady then return nil, 'MDT database is still starting. Try again shortly.' end
+    return QB.sql.query('SELECT `code`,`label`,`fine`,`active` FROM `qbmdt_charges` ORDER BY `label`,`code`')
+end)
+
+QB.callback.register('qbmdt:server:createCharge', function(src, input)
+    if not isPoliceBoss(src) then return false, 'not authorised' end
+    if not databaseReady or type(input) ~= 'table' then return false, 'invalid charge' end
+    local code = cleanText(input.code, 32, true)
+    local label = cleanText(input.label, 128, true)
+    local fine = tonumber(input.fine)
+    if not code or not code:match('^[%w_%-]+$') or not label or not fine or fine < 0 or fine > 2000000000 then
+        return false, 'enter a valid code, label, and non-negative fine'
+    end
+    code = code:upper()
+    local _, err = QB.sql.execute('INSERT INTO `qbmdt_charges` (`code`,`label`,`fine`,`active`) VALUES (?,?,?,1)',
+        { code, label, math.floor(fine) })
+    if err then return false, 'could not save charge (the code may already exist)' end
+    chargeCache = QB.sql.query('SELECT `code`,`label`,`fine` FROM `qbmdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`') or chargeCache
+    audit(src, 'charge.create', 'charge', code, label)
+    return true
+end)
+
+QB.callback.register('qbmdt:server:updateCharge', function(src, code, label, fine)
+    if not isPoliceBoss(src) then return false, 'not authorised' end
+    code = cleanText(code, 32, true)
+    label = cleanText(label, 128, true)
+    fine = tonumber(fine)
+    if not databaseReady or not code or not code:match('^[%w_%-]+$') or not label
+        or not fine or fine < 0 or fine > 2000000000 then
+        return false, 'enter a valid charge name and non-negative fine'
+    end
+    code = code:upper()
+    if not QB.sql.single('SELECT `code` FROM `qbmdt_charges` WHERE `code` = ?', { code }) then
+        return false, 'charge not found'
+    end
+    local updated, err = QB.sql.execute('UPDATE `qbmdt_charges` SET `label` = ?, `fine` = ? WHERE `code` = ?',
+        { label, math.floor(fine), code })
+    if err or updated == false then return false, err or 'could not update charge' end
+    chargeCache = QB.sql.query('SELECT `code`,`label`,`fine` FROM `qbmdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`') or chargeCache
+    audit(src, 'charge.update', 'charge', code, label)
+    return true
 end)
 
 QB.callback.register('qbmdt:server:addCriminal', function(src, wanted, code, notes)
     if not can(src, 'police') then return false, 'not authorised' end
-    wanted, code = cleanCid(wanted), type(code) == 'string' and code:upper() or nil
+    wanted = cleanCid(wanted)
+    local selection = cleanText(code, 128, true)
     local author = citizenId(src)
-    if not wanted or not code or not author then return false, 'invalid record' end
-    local charge = QB.sql.single('SELECT `code` FROM `qbmdt_charges` WHERE `code` = ? AND `active` = 1', { code })
+    if not wanted or not selection or not author then return false, 'invalid record' end
+    local charge = QB.sql.single('SELECT `code` FROM `qbmdt_charges` WHERE `active` = 1 AND (`code` = ? OR `label` = ?)',
+        { selection:upper(), selection })
     if not charge then return false, 'unknown charge' end
     if not personExists(wanted) then return false, 'citizen not found' end
     local written, err = QB.sql.execute('INSERT INTO `qbmdt_criminal_records` (`citizenid`,`charge_code`,`notes`,`author_citizenid`) VALUES (?,?,?,?)',
-        { wanted, code, tostring(notes or ''):sub(1, 1000), author })
+        { wanted, charge.code, tostring(notes or ''):sub(1, 1000), author })
     if not written then return false, err or 'database error' end
     audit(src, 'criminal.create', 'citizen', wanted, code)
     return true
@@ -265,17 +336,29 @@ end)
 
 QB.callback.register('qbmdt:server:reports', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return QB.sql.query(([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`charge_code`,
+    return QB.sql.query(([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`charge_code`,c.`label` AS `charge_label`,
         r.`author_citizenid`,r.`updated_at`,p.`name` AS `subject_name`
         FROM `qbmdt_reports` r LEFT JOIN `players` p ON p.`citizenid` = r.`subject_citizenid`
+        LEFT JOIN `qbmdt_charges` c ON c.`code` = r.`charge_code`
         ORDER BY (r.`status` = 'open') DESC,r.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {}
+end)
+
+QB.callback.register('qbmdt:server:reportOptions', function(src)
+    if not can(src, 'police') then return nil, 'not authorised' end
+    return QB.sql.query([[SELECT r.`id`,r.`title`,
+        COALESCE(p.`name`,r.`subject_citizenid`,'Unknown') AS `subject`
+        FROM `qbmdt_reports` r
+        LEFT JOIN `players` p ON p.`citizenid` = r.`subject_citizenid`
+        ORDER BY r.`created_at` DESC,r.`id` DESC]]) or {}
 end)
 
 QB.callback.register('qbmdt:server:report', function(src, value)
     if not can(src, 'police') then return nil, 'not authorised' end
     local id = cleanId(value)
     if not id then return nil, 'invalid report' end
-    return QB.sql.single([[SELECT r.*,p.`name` AS `subject_name`,a.`name` AS `author_name`,c.`label` AS `charge_label`,c.`fine`
+    return QB.sql.single([[SELECT r.`id`,r.`title`,r.`narrative`,r.`status`,r.`subject_citizenid`,r.`charge_code`,
+        r.`author_citizenid`,DATE_FORMAT(r.`created_at`, '%Y-%m-%d %H:%i:%s') AS `created_at`,
+        p.`name` AS `subject_name`,a.`name` AS `author_name`,c.`label` AS `charge_label`,c.`fine`
         FROM `qbmdt_reports` r
         LEFT JOIN `players` p ON p.`citizenid` = r.`subject_citizenid`
         LEFT JOIN `players` a ON a.`citizenid` = r.`author_citizenid`
@@ -283,17 +366,25 @@ QB.callback.register('qbmdt:server:report', function(src, value)
 end)
 
 QB.callback.register('qbmdt:server:createReport', function(src, input)
+    if not databaseReady then return nil, 'MDT database is still starting. Try again shortly.' end
     if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
     local title = cleanText(input.title, 160, true)
     local narrative = cleanText(input.narrative, 8000, true)
     local subject = cleanCid(input.citizenid)
-    local chargeCode = cleanText(input.charge, 32, false):upper()
+    local chargeSelection = cleanText(input.charge, 128, false)
+    local chargeCode
     if not title or not narrative then return nil, 'title and narrative are required' end
     if input.citizenid and input.citizenid ~= '' and not personExists(subject) then return nil, 'citizen not found' end
-    if chargeCode ~= '' then
-        local charge = QB.sql.single('SELECT `code` FROM `qbmdt_charges` WHERE `code` = ? AND `active` = 1', { chargeCode })
-        if not charge then return nil, 'unknown charge' end
-        if not subject then return nil, 'a charged report requires a citizen ID' end
+    if chargeSelection ~= '' then
+        local charge
+        for _, cached in ipairs(chargeCache) do
+            if cached.code:upper() == chargeSelection:upper() or cached.label:lower() == chargeSelection:lower() then
+                charge = cached
+                break
+            end
+        end
+        if not charge then return nil, 'Select a charge from the suggestions.' end
+        chargeCode = charge.code
     else
         chargeCode = nil
     end
@@ -334,10 +425,13 @@ QB.callback.register('qbmdt:server:case', function(src, value)
     if not can(src, 'police') then return nil, 'not authorised' end
     local id = cleanId(value)
     if not id then return nil, 'invalid case' end
-    local row = QB.sql.single([[SELECT c.*,p.`name` AS `lead_name` FROM `qbmdt_cases` c
+    local row = QB.sql.single([[SELECT c.`id`,c.`title`,c.`summary`,c.`priority`,c.`status`,c.`lead_citizenid`,
+        DATE_FORMAT(c.`created_at`, '%Y-%m-%d %H:%i:%s') AS `created_at`,
+        DATE_FORMAT(c.`updated_at`, '%Y-%m-%d %H:%i:%s') AS `updated_at`,p.`name` AS `lead_name` FROM `qbmdt_cases` c
         LEFT JOIN `players` p ON p.`citizenid` = c.`lead_citizenid` WHERE c.`id` = ?]], { id })
     if not row then return nil, 'case not found' end
-    row.reports = QB.sql.query([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`updated_at`
+    row.reports = QB.sql.query([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,
+        DATE_FORMAT(r.`updated_at`, '%Y-%m-%d %H:%i:%s') AS `updated_at`
         FROM `qbmdt_case_reports` cr JOIN `qbmdt_reports` r ON r.`id` = cr.`report_id`
         WHERE cr.`case_id` = ? ORDER BY r.`updated_at` DESC]], { id }) or {}
     return row
@@ -350,12 +444,35 @@ QB.callback.register('qbmdt:server:createCase', function(src, input)
     local priorities = { low = true, normal = true, high = true, critical = true }
     local priority = priorities[input.priority] and input.priority or 'normal'
     if not title or not summary then return nil, 'title and summary are required' end
+
+    local reportIds, seenReports = {}, {}
+    local requestedReports = input.report_ids
+    if requestedReports == nil and input.report_id ~= nil then requestedReports = { input.report_id } end
+    if requestedReports ~= nil then
+        if type(requestedReports) ~= 'table' then return nil, 'invalid initial reports' end
+        for _, entry in ipairs(requestedReports) do
+            local value = type(entry) == 'table' and entry.value or entry
+            if type(value) == 'string' then
+                local ok, decoded = pcall(json.decode, value)
+                if ok then value = decoded end
+            end
+            local reportId = cleanId(value)
+            if not reportId then return nil, 'invalid initial report' end
+            if not seenReports[reportId] then
+                if not QB.sql.single('SELECT `id` FROM `qbmdt_reports` WHERE `id` = ?', { reportId }) then
+                    return nil, 'initial report not found'
+                end
+                seenReports[reportId] = true
+                reportIds[#reportIds + 1] = reportId
+            end
+        end
+    end
+
     local lead = citizenId(src)
     local id, err = QB.sql.insert([[INSERT INTO `qbmdt_cases`
         (`title`,`summary`,`priority`,`lead_citizenid`) VALUES (?,?,?,?)]], { title, summary, priority, lead })
     if not id then return nil, err or 'database error' end
-    local reportId = cleanId(input.report_id)
-    if reportId and QB.sql.single('SELECT `id` FROM `qbmdt_reports` WHERE `id` = ?', { reportId }) then
+    for _, reportId in ipairs(reportIds) do
         QB.sql.execute('INSERT IGNORE INTO `qbmdt_case_reports` (`case_id`,`report_id`) VALUES (?,?)', { id, reportId })
     end
     audit(src, 'case.create', 'case', id, title)
@@ -379,8 +496,10 @@ QB.callback.register('qbmdt:server:linkCaseReport', function(src, caseValue, rep
     if not caseId or not reportId then return false, 'invalid case or report' end
     if not QB.sql.single('SELECT `id` FROM `qbmdt_cases` WHERE `id` = ?', { caseId }) then return false, 'case not found' end
     if not QB.sql.single('SELECT `id` FROM `qbmdt_reports` WHERE `id` = ?', { reportId }) then return false, 'report not found' end
-    local written, err = QB.sql.execute('INSERT IGNORE INTO `qbmdt_case_reports` (`case_id`,`report_id`) VALUES (?,?)', { caseId, reportId })
-    if not written or written < 1 then return false, err or 'report is already linked' end
+    local result, err = QB.sql.execute('INSERT IGNORE INTO `qbmdt_case_reports` (`case_id`,`report_id`) VALUES (?,?)', { caseId, reportId })
+    if not result then return false, err or 'database error' end
+    local affectedRows = type(result) == 'table' and tonumber(result.affectedRows) or tonumber(result)
+    if affectedRows == 0 then return false, 'report is already linked' end
     audit(src, 'case.report.link', 'case', caseId, tostring(reportId))
     return true
 end)
@@ -389,7 +508,7 @@ QB.callback.register('qbmdt:server:warrants', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     return QB.sql.query(([[SELECT w.`id`,w.`citizenid`,w.`reason`,
         IF(w.`status` = 'active' AND w.`expires_at` <= NOW(),'expired',w.`status`) AS `status`,
-        w.`expires_at`,w.`author_citizenid`,p.`name` AS `subject_name`
+        DATE_FORMAT(w.`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,w.`author_citizenid`,p.`name` AS `subject_name`
         FROM `qbmdt_warrants` w LEFT JOIN `players` p ON p.`citizenid` = w.`citizenid`
         ORDER BY (w.`status` = 'active' AND w.`expires_at` > NOW()) DESC,w.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {}
 end)
@@ -424,7 +543,7 @@ QB.callback.register('qbmdt:server:bolos', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     return QB.sql.query(([[SELECT `id`,`subject_type`,`subject_identifier`,`title`,`description`,
         IF(`status` = 'active' AND `expires_at` IS NOT NULL AND `expires_at` <= NOW(),'expired',`status`) AS `status`,
-        `author_citizenid`,`expires_at`,`updated_at` FROM `qbmdt_bolos`
+        `author_citizenid`,DATE_FORMAT(`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,`updated_at` FROM `qbmdt_bolos`
         ORDER BY (`status` = 'active' AND (`expires_at` IS NULL OR `expires_at` > NOW())) DESC,`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {}
 end)
 
@@ -486,7 +605,7 @@ QB.events.register('qbmdt:server:open', function(src)
             type = 'error',
         })
     end
-    TriggerClientEvent('qbmdt:client:open', src, userRole)
+    TriggerClientEvent('qbmdt:client:open', src, userRole, isPoliceBoss(src))
 end, { rateLimit = { max = 4, window = 2000 } })
 QB.events.register('qbmdt:server:beginAnalysis', function(src, caseId)
     if not can(src, 'police') or type(caseId) ~= 'string' then return end

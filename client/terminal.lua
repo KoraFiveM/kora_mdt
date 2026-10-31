@@ -18,12 +18,56 @@ local function statusCell(value)
     return { label = tostring(value or 'unknown'), badge = true, tone = tone }
 end
 
-local function openTerminal(role)
+local function openTerminal(role, policeBoss)
     if role ~= 'police' and role ~= 'medical' and role ~= 'judge' then return end
 
     local criminalAccess = role == 'police' or role == 'judge'
     local medicalAccess = role == 'medical' or role == 'judge'
     local policeAccess = criminalAccess
+    policeBoss = role == 'police' and policeBoss == true
+    local chargeOptions = {}
+    local reportOptions = {}
+    local caseOptions = {}
+    local selectedCharge
+    local function chargeContent(charge)
+        return {
+            title = charge.label,
+            description = 'Charge code: ' .. tostring(charge.code),
+            actions = { action('charge:edit', 'Edit charge', 'pencil', {
+                { id = 'label', label = 'Charge name', type = 'text', required = true, maxLength = 128, default = charge.label },
+                { id = 'fine', label = 'Fine', type = 'number', required = true, min = 0, max = 2000000000, default = charge.fine },
+            }, 'primary') },
+            blocks = { { type = 'details', columns = 2, items = {
+                { label = 'Code', value = tostring(charge.code) },
+                { label = 'Charge', value = tostring(charge.label) },
+                { label = 'Fine', value = tostring(charge.fine) },
+                { label = 'Active', value = tostring(charge.active == true or charge.active == 1) },
+            } } },
+        }
+    end
+    if policeAccess then
+        local rows = QB.callback.trigger('qbmdt:server:charges') or {}
+        for _, charge in ipairs(rows) do
+            chargeOptions[#chargeOptions + 1] = {
+                value = charge.label,
+                label = charge.label,
+            }
+        end
+        local reports = QB.callback.trigger('qbmdt:server:reportOptions') or {}
+        for _, report in ipairs(reports) do
+            reportOptions[#reportOptions + 1] = {
+                value = tostring(report.id),
+                label = ('%s - %s'):format(report.title or 'Untitled', report.subject or 'Unknown'),
+            }
+        end
+        local cases = QB.callback.trigger('qbmdt:server:cases') or {}
+        for _, case in ipairs(cases) do
+            caseOptions[#caseOptions + 1] = {
+                value = tostring(case.id),
+                label = ('#%s - %s'):format(case.id, case.title or 'Untitled'),
+            }
+        end
+    end
     local navigation = {}
     local selectedReport, selectedCase, selectedWarrant, selectedBolo
 
@@ -37,15 +81,88 @@ local function openTerminal(role)
         for _, view in ipairs(navigation) do if view.id == id then return view end end
     end
 
-    local function update(viewId, content, notice)
+    local function update(viewId, content, notice, tabId)
         local view = findView(viewId)
         if view and content then view.content = content end
-        return { update = { navigation = navigation }, navigate = { viewId = viewId }, notice = notice }
+        return { update = { navigation = navigation }, navigate = { viewId = viewId, tabId = tabId }, notice = notice }
     end
 
     local function showResult(content, notice)
+        if resultView.tabs then
+            for _, tab in ipairs(resultView.tabs) do
+                if tab.id == 'record' then
+                    tab.content = content
+                    return update('results', nil, notice, 'record')
+                end
+            end
+        end
         resultView.content = content
         return update('results', nil, notice)
+    end
+
+    local function caseContent(row)
+        local caseActions = { {
+            id = 'case:link-report', label = 'Add report', icon = 'plus', fields = {
+                { id = 'report_id', label = 'Search reports', type = 'select', searchable = true, required = true,
+                    options = reportOptions, placeholder = 'Search by title or subject...' },
+            },
+        } }
+        if row.status == 'open' then
+            caseActions[#caseActions + 1] = { id = 'case:investigate', label = 'Begin investigation', icon = 'search', variant = 'primary' }
+        end
+        if row.status ~= 'closed' then
+            caseActions[#caseActions + 1] = { id = 'case:close', label = 'Close case', icon = 'check-circle', variant = 'primary', confirm = 'Close this investigation?' }
+        else
+            caseActions[#caseActions + 1] = { id = 'case:reopen', label = 'Reopen case', icon = 'rotate-ccw', confirm = 'Reopen this investigation?' }
+        end
+        local linked = {}
+        for _, report in ipairs(row.reports or {}) do linked[#linked + 1] = {
+            id = tostring(report.id), title = ('Report #%s · %s'):format(tostring(report.id), tostring(report.title or 'Untitled')),
+            description = tostring(report.subject_citizenid or 'Unknown'), timestamp = tostring(report.updated_at or ''),
+            icon = 'file-text', tone = tostring(report.status) == 'open' and 'warning' or 'neutral',
+            actions = { { id = 'report:open-linked', label = 'Open report', icon = 'file-search' } },
+        } end
+        return { title = ('Case #%s · %s'):format(row.id, row.title), description = tostring(row.summary or ''),
+            actions = caseActions, blocks = {
+                { type = 'details', title = 'Investigation', columns = 2, items = {
+                    { label = 'status', value = tostring(row.status or 'unknown') }, { label = 'Priority', value = tostring(row.priority or 'normal') },
+                    { label = 'Lead', value = tostring(row.lead_name or row.lead_citizenid or 'Unknown') }, { label = 'Opened', value = tostring(row.created_at or '—') },
+                } }, { type = 'timeline', title = 'Linked reports', items = linked, empty = 'No reports linked to this case.' },
+            } }
+    end
+
+    local function reportContent(row)
+        local actions = {}
+        if row.status == 'open' then actions[1] = { id = 'report:close', label = 'Close report', icon = 'check-circle', variant = 'primary', confirm = 'Close this incident report?' } end
+        return { title = ('Report #%s · %s'):format(row.id, tostring(row.title or 'Untitled')),
+            description = tostring(row.narrative or ''), actions = actions, blocks = {
+            { type = 'details', title = 'Report details', columns = 2, items = {
+                { label = 'Status', value = tostring(row.status or 'unknown') },
+                { label = 'Subject', value = tostring(row.subject_name or row.subject_citizenid or 'Unknown') },
+                { label = 'Charge', value = tostring(row.charge_label or 'None') },
+                { label = 'Fine', value = tostring(row.fine or '—') },
+                { label = 'Author', value = tostring(row.author_name or row.author_citizenid or 'Unknown') },
+                { label = 'Created', value = tostring(row.created_at or '—') },
+            } },
+        } }
+    end
+
+    local function showReport(row)
+        local content = reportContent(row)
+        if not resultView.tabs then
+            resultView.tabs = { { id = 'record', label = 'Record', content = resultView.content } }
+            resultView.content = nil
+        end
+        local reportTab
+        for _, tab in ipairs(resultView.tabs) do
+            if tab.id == 'record-report' then reportTab = tab; break end
+        end
+        if reportTab then
+            reportTab.content = content
+        else
+            resultView.tabs[#resultView.tabs + 1] = { id = 'record-report', label = 'Record Report', content = content }
+        end
+        return update('results', nil, nil, 'record-report')
     end
 
     local function personContent(record)
@@ -140,21 +257,26 @@ local function openTerminal(role)
                 action('report:create', 'New incident report', 'file-plus', {
                     { id = 'title', label = 'Title', type = 'text', required = true, maxLength = 160 },
                     { id = 'citizenid', label = 'Subject citizen ID (optional)', type = 'text', maxLength = 64 },
-                    { id = 'charge', label = 'Charge code (optional)', type = 'text', maxLength = 32 },
+                    { id = 'charge', label = 'Charge (optional)', type = 'combobox', options = chargeOptions,
+                        placeholder = 'Type to search charges...' },
                     { id = 'narrative', label = 'Incident narrative', type = 'textarea', required = true, maxLength = 8000 },
                 }, 'primary'), action('report:refresh', 'Refresh reports', 'refresh-cw'),
             } } } } }
         navigation[#navigation + 1] = { id = 'cases', label = 'Cases', icon = 'folder-search', content = {
-            title = 'Investigations', blocks = { { type = 'actions', actions = {
+            title = 'Investigations', description = 'Use Attach report to case to link an incident report to an investigation.', blocks = { { type = 'actions', actions = {
                 action('case:create', 'Open a case', 'folder-plus', {
                     { id = 'title', label = 'Case title', type = 'text', required = true, maxLength = 160 },
                     { id = 'priority', label = 'Priority', type = 'select', required = true, default = 'normal', options = {
                         { value = 'low', label = 'Low' }, { value = 'normal', label = 'Normal' },
                         { value = 'high', label = 'High' }, { value = 'critical', label = 'Critical' },
                     } },
-                    { id = 'report_id', label = 'Initial report # (optional)', type = 'number', min = 1 },
                     { id = 'summary', label = 'Investigation summary', type = 'textarea', required = true, maxLength = 8000 },
-                }, 'primary'), action('case:refresh', 'Refresh cases', 'refresh-cw'),
+                }, 'primary'), action('case:attach-report', 'Attach report to case', 'plus', {
+                    { id = 'case_id', label = 'Case', type = 'select', searchable = true, required = true,
+                        options = caseOptions, placeholder = 'Search cases by number or title...' },
+                    { id = 'report_id', label = 'Report', type = 'select', searchable = true, required = true,
+                        options = reportOptions, placeholder = 'Search reports by title or subject...' },
+                }), action('case:refresh', 'Refresh cases', 'refresh-cw'),
             } } } } }
         navigation[#navigation + 1] = { id = 'warrants', label = 'Warrants', icon = 'gavel', content = {
             title = 'Warrants', blocks = { { type = 'actions', actions = {
@@ -180,12 +302,32 @@ local function openTerminal(role)
             title = 'Police tools', blocks = { { type = 'actions', actions = {
                 action('criminal:create', 'Add criminal record', 'file-plus', {
                     { id = 'citizenid', label = 'Citizen ID', type = 'text', required = true },
-                    { id = 'charge', label = 'Charge code', type = 'text', required = true },
+                    { id = 'charge', label = 'Charge', type = 'combobox', required = true, options = chargeOptions,
+                        placeholder = 'Type to search charges...' },
                     { id = 'notes', label = 'Notes', type = 'textarea', maxLength = 1000 },
                 }), action('analysis:start', 'Analyse ballistic casing', 'microscope', {
                     { id = 'caseid', label = 'Casing case ID', type = 'text', required = true },
                 }),
             } } } } }
+        if policeBoss then
+            navigation[#navigation + 1] = { id = 'charges', label = 'Charges', icon = 'scale', content = {
+                title = 'Charge management', description = 'Create charges for the criminal record and report tools.', blocks = {
+                    { type = 'actions', actions = {
+                        action('charge:create', 'Create charge', 'plus', {
+                            { id = 'code', label = 'Charge code', type = 'text', required = true, maxLength = 32 },
+                            { id = 'label', label = 'Charge name', type = 'text', required = true, maxLength = 128 },
+                            { id = 'fine', label = 'Fine', type = 'number', required = true, min = 0, max = 2000000000 },
+                        }, 'primary'), action('charge:refresh', 'Refresh charges', 'refresh-cw'),
+                    } },
+                    { type = 'table', id = 'managed-charges', searchable = true, pageSize = 12,
+                        columns = { { key = 'label', label = 'Charge', sortable = true },
+                            { key = 'fine', label = 'Fine', align = 'right', sortable = true },
+                            { key = 'active', label = 'Active', sortable = true } },
+                        rows = QB.callback.trigger('qbmdt:server:manageCharges') or {}, empty = 'No charges configured.',
+                        action = 'charge:select', idKey = 'code' },
+                },
+            } }
+        end
     end
 
     if medicalAccess then
@@ -220,10 +362,17 @@ local function openTerminal(role)
     local function refreshReports()
         local rows, err = QB.callback.trigger('qbmdt:server:reports')
         if not rows then return nil, err end
+        local optionRows = QB.callback.trigger('qbmdt:server:reportOptions') or {}
+        for index = #reportOptions, 1, -1 do reportOptions[index] = nil end
+        for _, row in ipairs(optionRows) do
+            reportOptions[#reportOptions + 1] = {
+                value = tostring(row.id), label = ('%s - %s'):format(row.title or 'Untitled', row.subject or 'Unknown'),
+            }
+        end
         local output = {}
         for _, row in ipairs(rows) do output[#output + 1] = {
             id = tostring(row.id), status = statusCell(row.status), title = row.title,
-            subject = row.subject_name or row.subject_citizenid or '—', charge = row.charge_code or '—', updated = row.updated_at or '—',
+            subject = row.subject_name or row.subject_citizenid or 'Unknown', charge = row.charge_label or '—', updated = row.updated_at or '—',
         } end
         local view = findView('reports')
         view.content.blocks[2] = { type = 'table', id = 'report-list', title = 'Recent reports', searchable = true, pageSize = 12,
@@ -237,9 +386,13 @@ local function openTerminal(role)
     local function refreshCases()
         local rows, err = QB.callback.trigger('qbmdt:server:cases')
         if not rows then return nil, err end
+        for index = #caseOptions, 1, -1 do caseOptions[index] = nil end
         local output = {}
-        for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), priority = statusCell(row.priority),
-            status = statusCell(row.status), title = row.title, lead = row.lead_citizenid, reports = tonumber(row.report_count) or 0, updated = row.updated_at or '—' } end
+        for _, row in ipairs(rows) do
+            caseOptions[#caseOptions + 1] = { value = tostring(row.id), label = ('#%s - %s'):format(row.id, row.title or 'Untitled') }
+            output[#output + 1] = { id = tostring(row.id), priority = statusCell(row.priority),
+                status = statusCell(row.status), title = row.title, lead = row.lead_citizenid, reports = tonumber(row.report_count) or 0, updated = row.updated_at or '—' }
+        end
         findView('cases').content.blocks[2] = { type = 'table', id = 'case-list', title = 'Investigation files', searchable = true, pageSize = 12,
             columns = { { key = 'id', label = '#', sortable = true }, { key = 'priority', label = 'Priority', sortable = true },
                 { key = 'status', label = 'status', sortable = true }, { key = 'title', label = 'Case', sortable = true },
@@ -266,7 +419,8 @@ local function openTerminal(role)
         if not rows then return nil, err end
         local output = {}
         for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), status = statusCell(row.status),
-            kind = row.subject_type, subject = row.subject_identifier, title = row.title, description = row.description, expires = row.expires_at or '—' } end
+            kind = tostring(row.subject_type or ''), subject = tostring(row.subject_identifier or ''), title = tostring(row.title or ''),
+            description = tostring(row.description or ''), expires = tostring(row.expires_at or '—') } end
         findView('bolos').content.blocks[2] = { type = 'table', id = 'bolo-list', title = 'Current and recent BOLOs', searchable = true, pageSize = 12,
             columns = { { key = 'id', label = '#', sortable = true }, { key = 'status', label = 'status', sortable = true },
                 { key = 'kind', label = 'Type', sortable = true }, { key = 'subject', label = 'Subject', sortable = true },
@@ -324,6 +478,59 @@ local function openTerminal(role)
                     columns = { { key = 'code', label = 'Code', sortable = true }, { key = 'label', label = 'Charge', sortable = true },
                         { key = 'fine', label = 'Fine', align = 'right', sortable = true } }, rows = rows, empty = 'No charges configured.',
                 } } })
+            elseif selectedId == 'charge:refresh' and policeBoss then
+                local rows, err = QB.callback.trigger('qbmdt:server:manageCharges')
+                if not rows then return message(false, nil, err) end
+                return update('charges', { title = 'Charge management', description = 'Create charges for the criminal record and report tools.', blocks = {
+                    { type = 'actions', actions = {
+                        action('charge:create', 'Create charge', 'plus', {
+                            { id = 'code', label = 'Charge code', type = 'text', required = true, maxLength = 32 },
+                            { id = 'label', label = 'Charge name', type = 'text', required = true, maxLength = 128 },
+                            { id = 'fine', label = 'Fine', type = 'number', required = true, min = 0, max = 2000000000 },
+                        }, 'primary'), action('charge:refresh', 'Refresh charges', 'refresh-cw'),
+                    } },
+                    { type = 'table', id = 'managed-charges', searchable = true, pageSize = 12,
+                        columns = { { key = 'label', label = 'Charge', sortable = true }, { key = 'fine', label = 'Fine', align = 'right', sortable = true },
+                        { key = 'active', label = 'Active', sortable = true } }, rows = rows, empty = 'No charges configured.',
+                        action = 'charge:select', idKey = 'code' },
+                } })
+            elseif selectedId == 'charge:create' and policeBoss then
+                local ok, err = QB.callback.trigger('qbmdt:server:createCharge', input)
+                if not ok then return message(false, nil, err) end
+                local rows = QB.callback.trigger('qbmdt:server:charges') or {}
+                for i = #chargeOptions, 1, -1 do chargeOptions[i] = nil end
+                for _, charge in ipairs(rows) do chargeOptions[#chargeOptions + 1] = { value = charge.label, label = charge.label } end
+                local managed = QB.callback.trigger('qbmdt:server:manageCharges') or {}
+                return update('charges', { title = 'Charge management', description = 'Create charges for the criminal record and report tools.', blocks = {
+                    { type = 'actions', actions = {
+                        action('charge:create', 'Create charge', 'plus', {
+                            { id = 'code', label = 'Charge code', type = 'text', required = true, maxLength = 32 },
+                            { id = 'label', label = 'Charge name', type = 'text', required = true, maxLength = 128 },
+                            { id = 'fine', label = 'Fine', type = 'number', required = true, min = 0, max = 2000000000 },
+                        }, 'primary'), action('charge:refresh', 'Refresh charges', 'refresh-cw'),
+                    } },
+                    { type = 'table', id = 'managed-charges', searchable = true, pageSize = 12,
+                        columns = { { key = 'label', label = 'Charge', sortable = true }, { key = 'fine', label = 'Fine', align = 'right', sortable = true },
+                        { key = 'active', label = 'Active', sortable = true } }, rows = managed, empty = 'No charges configured.',
+                        action = 'charge:select', idKey = 'code' },
+                } }, { tone = 'success', message = 'Charge created.' })
+            elseif selectedId == 'charge:select' and policeBoss and itemId then
+                local rows = QB.callback.trigger('qbmdt:server:manageCharges') or {}
+                for _, charge in ipairs(rows) do
+                    if tostring(charge.code) == tostring(itemId) then selectedCharge = charge; break end
+                end
+                if not selectedCharge then return message(false, nil, 'Charge not found.') end
+                return showResult(chargeContent(selectedCharge))
+            elseif selectedId == 'charge:edit' and policeBoss and selectedCharge then
+                local ok, err = QB.callback.trigger('qbmdt:server:updateCharge', selectedCharge.code, input.label, input.fine)
+                if not ok then return message(false, nil, err) end
+                local activeCharges = QB.callback.trigger('qbmdt:server:charges') or {}
+                for i = #chargeOptions, 1, -1 do chargeOptions[i] = nil end
+                for _, charge in ipairs(activeCharges) do chargeOptions[#chargeOptions + 1] = { value = charge.label, label = charge.label } end
+                for _, charge in ipairs(QB.callback.trigger('qbmdt:server:manageCharges') or {}) do
+                    if tostring(charge.code) == tostring(selectedCharge.code) then selectedCharge = charge; break end
+                end
+                return showResult(chargeContent(selectedCharge), { tone = 'success', message = 'Charge updated.' })
             elseif selectedId == 'firearm:search' and policeAccess then
                 local row, err = QB.callback.trigger('qbmdt:server:shopFirearm', input.serial)
                 if not row then return message(false, nil, err or 'No registered firearm found.') end
@@ -339,65 +546,43 @@ local function openTerminal(role)
                 if not id then return message(false, nil, err) end
                 refreshReports(); refreshDashboard()
                 return update('reports', nil, { tone = 'success', message = ('Incident report #%s created.'):format(id) })
-            elseif selectedId == 'report:select' and itemId and policeAccess then
+            elseif (selectedId == 'report:select' or selectedId == 'report:open-linked') and itemId and policeAccess then
                 local row, err = QB.callback.trigger('qbmdt:server:report', itemId)
                 if not row then return message(false, nil, err or 'Report not found.') end
                 selectedReport = row
-                local actions = {}
-                if row.status == 'open' then actions[1] = { id = 'report:close', label = 'Close report', icon = 'check-circle', variant = 'primary', confirm = 'Close this incident report?' } end
-                return showResult({ title = ('Report #%s · %s'):format(row.id, row.title), description = row.narrative, actions = actions, blocks = {
-                    { type = 'details', title = 'Report details', columns = 2, items = {
-                        { label = 'status', value = row.status }, { label = 'Subject', value = row.subject_name or row.subject_citizenid or 'None' },
-                        { label = 'Charge', value = row.charge_label and ((row.charge_code or '') .. ' · ' .. row.charge_label) or 'None' },
-                        { label = 'Fine', value = row.fine or '—' }, { label = 'Author', value = row.author_name or row.author_citizenid },
-                        { label = 'Created', value = row.created_at or '—' },
-                    } },
-                } })
+                return showReport(row)
             elseif selectedId == 'report:close' and selectedReport and policeAccess then
                 local ok, err = QB.callback.trigger('qbmdt:server:closeReport', selectedReport.id)
                 if ok then selectedReport.status = 'closed'; refreshReports(); refreshDashboard() end
                 return ok and update('reports', nil, { tone = 'success', message = 'Report closed.' }) or message(false, nil, err)
             elseif selectedId == 'case:refresh' and policeAccess then
                 local ok, err = refreshCases(); return ok and update('cases') or message(false, nil, err)
+            elseif selectedId == 'case:attach-report' and policeAccess then
+                local ok, err = QB.callback.trigger('qbmdt:server:linkCaseReport', input.case_id, input.report_id)
+                if not ok then return message(false, nil, err) end
+                refreshCases()
+                return update('cases', nil, { tone = 'success', message = 'Report attached to case.' })
             elseif selectedId == 'case:create' and policeAccess then
                 local id, err = QB.callback.trigger('qbmdt:server:createCase', input)
                 if not id then return message(false, nil, err) end
                 refreshCases(); refreshDashboard()
+                local row = QB.callback.trigger('qbmdt:server:case', id)
+                if row then selectedCase = row; return showResult(caseContent(row), { tone = 'success', message = ('Case #%s opened. Add reports with + Add report.'):format(id) }) end
                 return update('cases', nil, { tone = 'success', message = ('Case #%s opened.'):format(id) })
             elseif selectedId == 'case:select' and itemId and policeAccess then
                 local row, err = QB.callback.trigger('qbmdt:server:case', itemId)
                 if not row then return message(false, nil, err or 'Case not found.') end
                 selectedCase = row
-                local caseActions = {
-                    { id = 'case:link-report', label = 'Link incident report', icon = 'link', fields = {
-                        { id = 'report_id', label = 'Incident report #', type = 'number', required = true, min = 1 },
-                    } },
-                }
-                if row.status == 'open' then
-                    caseActions[#caseActions + 1] = { id = 'case:investigate', label = 'Begin investigation', icon = 'search', variant = 'primary' }
-                end
-                if row.status ~= 'closed' then
-                    caseActions[#caseActions + 1] = { id = 'case:close', label = 'Close case', icon = 'check-circle', variant = 'primary', confirm = 'Close this investigation?' }
-                else
-                    caseActions[#caseActions + 1] = { id = 'case:reopen', label = 'Reopen case', icon = 'rotate-ccw', confirm = 'Reopen this investigation?' }
-                end
-                local linked = {}
-                for _, report in ipairs(row.reports or {}) do linked[#linked + 1] = {
-                    id = tostring(report.id), title = ('Report #%s · %s'):format(report.id, report.title),
-                    description = report.subject_citizenid or 'No subject', timestamp = tostring(report.updated_at or ''),
-                    icon = 'file-text', tone = report.status == 'open' and 'warning' or 'neutral',
-                } end
-                return showResult({ title = ('Case #%s · %s'):format(row.id, row.title), description = row.summary,
-                    actions = caseActions, blocks = {
-                        { type = 'details', title = 'Investigation', columns = 2, items = {
-                            { label = 'status', value = row.status }, { label = 'Priority', value = row.priority },
-                            { label = 'Lead', value = row.lead_name or row.lead_citizenid }, { label = 'Opened', value = row.created_at or '—' },
-                        } }, { type = 'timeline', title = 'Linked reports', items = linked, empty = 'No reports linked to this case.' },
-                    } })
+                return showResult(caseContent(row))
             elseif selectedId == 'case:link-report' and selectedCase and policeAccess then
                 local ok, err = QB.callback.trigger('qbmdt:server:linkCaseReport', selectedCase.id, input.report_id)
-                if ok then refreshCases() end
-                return ok and update('cases', nil, { tone = 'success', message = 'Report linked to case.' }) or message(false, nil, err)
+                if ok then
+                    refreshCases()
+                    local row = QB.callback.trigger('qbmdt:server:case', selectedCase.id)
+                    if row then selectedCase = row; return showResult(caseContent(row), { tone = 'success', message = 'Report added. Use + Add report to attach another.' }) end
+                    return update('cases', nil, { tone = 'success', message = 'Report linked to case.' })
+                end
+                return message(false, nil, err)
             elseif (selectedId == 'case:investigate' or selectedId == 'case:close' or selectedId == 'case:reopen') and selectedCase and policeAccess then
                 local state = selectedId == 'case:investigate' and 'investigating' or selectedId == 'case:close' and 'closed' or 'open'
                 local ok, err = QB.callback.trigger('qbmdt:server:updateCaseStatus', selectedCase.id, state)
@@ -418,11 +603,11 @@ local function openTerminal(role)
                     { id = 'warrant:serve', label = 'Mark served', icon = 'check-circle', variant = 'primary', confirm = 'Mark this warrant as served?' },
                     { id = 'warrant:revoke', label = 'Revoke warrant', icon = 'x-circle', variant = 'destructive', confirm = 'Revoke this warrant?' },
                 } end
-                return showResult({ title = ('Warrant #%s'):format(selectedWarrant.id), description = selectedWarrant.reason, actions = actions, blocks = { {
-                    type = 'details', columns = 2, items = { { label = 'status', value = selectedWarrant.status },
-                        { label = 'Subject', value = selectedWarrant.subject_name or selectedWarrant.citizenid },
-                        { label = 'Citizen ID', value = selectedWarrant.citizenid }, { label = 'Expires', value = selectedWarrant.expires_at or '—' },
-                        { label = 'Issued by', value = selectedWarrant.author_citizenid }, },
+                return showResult({ title = ('Warrant #%s'):format(tostring(selectedWarrant.id)), description = tostring(selectedWarrant.reason or ''), actions = actions, blocks = { {
+                    type = 'details', columns = 2, items = { { label = 'status', value = tostring(selectedWarrant.status or 'unknown') },
+                        { label = 'Subject', value = tostring(selectedWarrant.subject_name or selectedWarrant.citizenid or 'Unknown') },
+                        { label = 'Citizen ID', value = tostring(selectedWarrant.citizenid or '—') }, { label = 'Expires', value = tostring(selectedWarrant.expires_at or '—') },
+                        { label = 'Issued by', value = tostring(selectedWarrant.author_citizenid or 'Unknown') }, },
                 } } })
             elseif (selectedId == 'warrant:serve' or selectedId == 'warrant:revoke') and selectedWarrant and policeAccess then
                 local state = selectedId == 'warrant:serve' and 'served' or 'revoked'
@@ -440,10 +625,11 @@ local function openTerminal(role)
                 for _, row in ipairs(QB.callback.trigger('qbmdt:server:bolos') or {}) do if tostring(row.id) == tostring(itemId) then selectedBolo = row; break end end
                 if not selectedBolo then return message(false, nil, 'BOLO not found.') end
                 local actions = selectedBolo.status == 'active' and { { id = 'bolo:resolve', label = 'Resolve BOLO', icon = 'check-circle', variant = 'primary', confirm = 'Resolve this BOLO?' } } or {}
-                return showResult({ title = ('BOLO #%s · %s'):format(selectedBolo.id, selectedBolo.title), description = selectedBolo.description, actions = actions, blocks = { {
-                    type = 'details', columns = 2, items = { { label = 'status', value = selectedBolo.status },
-                        { label = 'Type', value = selectedBolo.subject_type }, { label = 'Subject', value = selectedBolo.subject_identifier },
-                        { label = 'Expires', value = selectedBolo.expires_at or '—' }, { label = 'Created by', value = selectedBolo.author_citizenid }, },
+                return showResult({ title = ('BOLO #%s · %s'):format(tostring(selectedBolo.id), tostring(selectedBolo.title or 'Untitled')),
+                    description = tostring(selectedBolo.description or ''), actions = actions, blocks = { {
+                    type = 'details', columns = 2, items = { { label = 'status', value = tostring(selectedBolo.status or 'unknown') },
+                        { label = 'Type', value = tostring(selectedBolo.subject_type or '—') }, { label = 'Subject', value = tostring(selectedBolo.subject_identifier or '—') },
+                        { label = 'Expires', value = tostring(selectedBolo.expires_at or '—') }, { label = 'Created by', value = tostring(selectedBolo.author_citizenid or 'Unknown') }, },
                 } } })
             elseif selectedId == 'bolo:resolve' and selectedBolo and policeAccess then
                 local ok, err = QB.callback.trigger('qbmdt:server:resolveBolo', selectedBolo.id)
