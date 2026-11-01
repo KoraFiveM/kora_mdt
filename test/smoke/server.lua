@@ -39,6 +39,7 @@ local function resetObservations()
     handle.sqlInserts = {}
     handle.sqlUpdates = {}
     handle.sqlSingle = nil
+    handle.sqlInsertError = nil
     handle.sqlQuery = nil
     handle.startTrainingResult = true
     handle.startTrainingError = nil
@@ -118,13 +119,15 @@ h.test('incident reports validate server records, create charge history, and aud
         if query:find('FROM `players`', 1, true) then return { citizenid = params[1] } end
     end
     local create = QB.callback.registry['qbmdt:server:createReport']
+    Config.mdt.reports.allowCustomCharges = false
     local id, err = create(94, { title = 'Traffic stop', narrative = 'Vehicle failed to stop.', citizenid = 'CID000777', charge = 'bad' })
+    Config.mdt.reports.allowCustomCharges = true
     h.assertEqual(id, nil)
-    h.assertEqual(err, 'Select a charge from the suggestions.')
+    h.assertTrue(err:find('is not in the charge list', 1, true) ~= nil)
 
     id, err = create(94, { title = 'Traffic stop', narrative = 'Vehicle failed to stop.', citizenid = 'CID000777', charge = 'spd-01' })
     h.assertEqual(id, 1)
-    h.assertEqual(handle.sqlInserts[1].params[4], 'SPD-01')
+    h.assertEqual(handle.sqlInserts[1].params[5], 'SPD-01')
     h.assertTrue(handle.sqlInserts[2].query:find('qbmdt_criminal_records', 1, true) ~= nil,
         'charged report must be reflected in criminal history')
     h.assertTrue(handle.sqlInserts[3].query:find('qbmdt_audit_log', 1, true) ~= nil,
@@ -219,7 +222,7 @@ h.test('person BOLOs accept citizen ID, unique name, or free text and report cle
     end
     local names = { ['jane doe'] = { { citizenid = 'ABC12345' } }, twin = { { citizenid = 'A' }, { citizenid = 'B' } } }
     handle.sqlQuery = function(query, params)
-        if query:find('LOWER(`name`)', 1, true) then return names[params[1]:lower()] or {} end
+        if query:find('LOWER(TRIM(`name`))', 1, true) then return names[params[1]:lower()] or {} end
         return {}
     end
     local create = QB.callback.registry['qbmdt:server:createBolo']
@@ -243,6 +246,122 @@ h.test('person BOLOs accept citizen ID, unique name, or free text and report cle
     h.assertTrue(err:find('No citizen matches', 1, true) ~= nil)
     id, err = create(96, { subject_type = 'person', identifier = '', title = 'x', description = 'y' })
     h.assertEqual(err, 'Enter a citizen ID or name for the subject.')
+end)
+
+h.test('report creation succeeds for empty, citizen ID, name and free-text subjects and charges', function()
+    resetObservations()
+    local author = handle.ensurePlayer(97)
+    readyMdt()
+    local NULL = QB.sql.NULL
+    local people = { CID000777 = true }
+    handle.sqlSingle = function(query, params)
+        if query:find('FROM `players`', 1, true) and people[params[1]] then return { citizenid = params[1] } end
+    end
+    handle.sqlQuery = function(query, params)
+        if query:find('LOWER(TRIM(`name`))', 1, true) then
+            if params[1]:lower() == 'known person' then return { { citizenid = 'CID000777' } } end
+            if params[1]:lower() == 'twin' then return { { citizenid = 'A' }, { citizenid = 'B' } } end
+        end
+        return {}
+    end
+    local create = QB.callback.registry['qbmdt:server:createReport']
+    local function report(extra)
+        local input = { title = 'Incident', narrative = 'Something happened.' }
+        for k, v in pairs(extra or {}) do input[k] = v end
+        local before = #handle.sqlInserts
+        local id, err = create(97, input)
+        return id, err, handle.sqlInserts[before + 1]
+    end
+    -- params: title, narrative, subject_citizenid, subject_text, charge_code, charge_text, author
+    local id, err, insert = report({ citizenid = '', charge = 'Speeding' })
+    h.assertTrue(id ~= nil, tostring(err))
+    h.assertEqual(#insert.params, 7, 'no nil holes in the bind list')
+    h.assertEqual(insert.params[3], NULL)
+    h.assertEqual(insert.params[4], NULL)
+    h.assertEqual(insert.params[5], 'SPD-01')
+    h.assertEqual(insert.params[6], NULL)
+    h.assertEqual(insert.params[7], author.citizenid)
+
+    id, err, insert = report({ charge = 'Trespassing' })
+    h.assertTrue(id ~= nil, tostring(err))
+    h.assertEqual(#insert.params, 7)
+    h.assertEqual(insert.params[5], NULL)
+    h.assertEqual(insert.params[6], 'Trespassing')
+
+    id, err, insert = report({ citizenid = 'CID000777', charge = 'Speeding' })
+    h.assertTrue(id ~= nil, tostring(err))
+    h.assertEqual(insert.params[3], 'CID000777')
+
+    id, err, insert = report({ citizenid = 'Joe Jones', charge = 'Possession of an unlicensed firearm' })
+    h.assertTrue(id ~= nil, tostring(err))
+    h.assertEqual(insert.params[3], NULL)
+    h.assertEqual(insert.params[4], 'Joe Jones')
+    h.assertEqual(insert.params[6], 'Possession of an unlicensed firearm', 'a charge outside the catalogue is kept as text')
+
+    id, err, insert = report({ citizenid = 'known person' })
+    h.assertTrue(id ~= nil, tostring(err))
+    h.assertEqual(insert.params[3], 'CID000777', 'an exact unique name links the citizen')
+
+    id, err = report({ citizenid = 'twin' })
+    h.assertEqual(id, nil)
+    h.assertTrue(err:find('More than one citizen', 1, true) ~= nil)
+
+    Config.mdt.reports.allowUnknownSubject = false
+    id, err = report({ citizenid = 'Joe Jones' })
+    Config.mdt.reports.allowUnknownSubject = true
+    h.assertEqual(id, nil)
+    h.assertTrue(err:find('Subject must be a citizen ID', 1, true) ~= nil)
+
+    Config.mdt.reports.allowCustomCharges = false
+    id, err = report({ charge = 'Trespassing' })
+    Config.mdt.reports.allowCustomCharges = true
+    h.assertEqual(id, nil)
+    h.assertTrue(err:find('"Trespassing" is not in the charge list', 1, true) ~= nil)
+
+    handle.sqlInsertError = { match = 'qbmdt_reports', message = 'boom' }
+    id, err = report({})
+    h.assertEqual(id, nil)
+    h.assertTrue(err:find('database error', 1, true) ~= nil, 'a failed insert returns a specific message')
+    handle.sqlInsertError = nil
+end)
+
+h.test('BOLO subject is stored and shown as a readable label and never the creator', function()
+    resetObservations()
+    local author = handle.ensurePlayer(98)
+    local previousJson = _G.json
+    _G.json = { decode = function() return { firstname = "Joe", lastname = "Jones" } end }
+    readyMdt()
+    handle.sqlSingle = function(query, params)
+        if query:find('`charinfo`', 1, true) and params[1] == 'JJ123456' then
+            return { citizenid = 'JJ123456', name = 'acct', charinfo = '{"firstname":"Joe","lastname":"Jones"}' }
+        end
+        if query:find('FROM `players`', 1, true) and params[1] == 'JJ123456' then return { citizenid = 'JJ123456' } end
+    end
+    handle.sqlQuery = function(query, params)
+        if query:find('LOWER(TRIM(`name`))', 1, true) then
+            return params[1]:lower() == 'joe jones' and { { citizenid = 'JJ123456' } } or {}
+        end
+        return {}
+    end
+    local create = QB.callback.registry['qbmdt:server:createBolo']
+    local function make(identifier)
+        local before = #handle.sqlInserts
+        local id, err = create(98, { subject_type = 'person', identifier = identifier, title = 'Wanted', description = 'Detain.', days = 1 })
+        h.assertTrue(id ~= nil, tostring(err))
+        return handle.sqlInserts[before + 1].params
+    end
+    local params = make('Joe Jones')
+    h.assertEqual(params[2], 'JJ123456')
+    h.assertEqual(params[3], 'Joe Jones (JJ123456)')
+    params = make('JJ123456')
+    h.assertEqual(params[3], 'Joe Jones (JJ123456)')
+    params = make('Nobody Known')
+    h.assertEqual(params[2], 'Nobody Known')
+    h.assertEqual(params[3], 'Nobody Known')
+    h.assertTrue(params[2] ~= author.citizenid and params[3] ~= author.citizenid, 'the creator is never substituted')
+    handle.sqlQuery = function() return { { id = 1, subject_label = 'Joe Jones (JJ123456)' } } end
+    h.assertEqual(QB.callback.registry['qbmdt:server:bolos'](98)[1].subject_label, 'Joe Jones (JJ123456)')
+    _G.json = previousJson
 end)
 
 h.test('warrant and BOLO state changes use server-owned transitions and audit', function()

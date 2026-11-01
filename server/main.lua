@@ -53,6 +53,37 @@ end
 local function personExists(cid)
     return cid and QB.sql.single('SELECT `citizenid` FROM `players` WHERE `citizenid` = ? AND `deleted_at` IS NULL', { cid }) ~= nil
 end
+local function logError(where, err)
+    print(('^1[kora_mdt]^7 %s: %s'):format(where, tostring(err)))
+end
+local function decodeJson(value)
+    if type(value) == 'table' then return value end
+    if type(value) ~= 'string' or value == '' then return {} end
+    local ok, decoded = pcall(function() return json.decode(value) end)
+    return ok and type(decoded) == 'table' and decoded or {}
+end
+-- "First Last (CID)" for a citizen, falling back to the account name and then the bare id.
+local function personLabel(cid)
+    local row = cid and QB.sql.single('SELECT `citizenid`,`name`,`charinfo` FROM `players` WHERE `citizenid` = ? AND `deleted_at` IS NULL', { cid })
+    if not row then return cid end
+    local info = decodeJson(row.charinfo)
+    local first, last = cleanText(info.firstname, 64, false), cleanText(info.lastname, 64, false)
+    local name = (first ~= '' and last ~= '') and (first .. ' ' .. last) or cleanText(row.name, 128, false)
+    if name == '' or name == 'unknown' then return row.citizenid end
+    return ('%s (%s)'):format(name, row.citizenid)
+end
+-- Exact, case-insensitive full-name lookup. Returns the citizen ID of a single match,
+-- nil for no match, or nil plus true when several citizens share the name.
+local function resolvePersonByName(name)
+    name = cleanText(name, 128, false)
+    if name == '' then return nil end
+    local rows = QB.sql.query([[SELECT `citizenid` FROM `players` WHERE `deleted_at` IS NULL AND (LOWER(TRIM(`name`)) = LOWER(?)
+        OR LOWER(IF(JSON_VALID(`charinfo`), CONCAT(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(`charinfo`, '$.firstname'))), ''), ' ',
+            NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(`charinfo`, '$.lastname'))), '')), NULL)) = LOWER(?)) LIMIT 2]], { name, name }) or {}
+    if #rows == 1 then return rows[1].citizenid end
+    if #rows > 1 then return nil, true end
+    return nil
+end
 -- Everything the terminal shows as a time goes through formatTime so the NUI
 -- only receives plain strings; raw TIMESTAMP columns can arrive as tables.
 local TIME_KEYS = { created_at = true, updated_at = true, expires_at = true, purchased_at = true, last_updated = true }
@@ -379,7 +410,7 @@ end)
 QB.callback.register('qbmdt:server:reports', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     return withTimes(QB.sql.query(([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`charge_code`,c.`label` AS `charge_label`,
-        r.`author_citizenid`,]] .. ts('r.`updated_at`') .. [[ AS `updated_at`,p.`name` AS `subject_name`
+        r.`subject_text`,r.`charge_text`,r.`author_citizenid`,]] .. ts('r.`updated_at`') .. [[ AS `updated_at`,p.`name` AS `subject_name`
         FROM `qbmdt_reports` r LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
         LEFT JOIN `qbmdt_charges` c ON c.`code` = r.`charge_code`
         ORDER BY (r.`status` = 'open') DESC,r.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {})
@@ -388,7 +419,7 @@ end)
 QB.callback.register('qbmdt:server:reportOptions', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     return QB.sql.query([[SELECT r.`id`,r.`title`,
-        COALESCE(p.`name`,r.`subject_citizenid`,'Unknown') AS `subject`
+        COALESCE(p.`name`,r.`subject_citizenid`,r.`subject_text`,'Unknown') AS `subject`
         FROM `qbmdt_reports` r
         LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
         ORDER BY r.`created_at` DESC,r.`id` DESC]]) or {}
@@ -398,7 +429,7 @@ QB.callback.register('qbmdt:server:report', function(src, value)
     if not can(src, 'police') then return nil, 'not authorised' end
     local id = cleanId(value)
     if not id then return nil, 'invalid report' end
-    return withTimes(QB.sql.single([[SELECT r.`id`,r.`title`,r.`narrative`,r.`status`,r.`subject_citizenid`,r.`charge_code`,
+    return withTimes(QB.sql.single([[SELECT r.`id`,r.`title`,r.`narrative`,r.`status`,r.`subject_citizenid`,r.`subject_text`,r.`charge_text`,r.`charge_code`,
         r.`author_citizenid`,DATE_FORMAT(r.`created_at`, '%Y-%m-%d %H:%i:%s') AS `created_at`,
         p.`name` AS `subject_name`,a.`name` AS `author_name`,c.`label` AS `charge_label`,c.`fine`
         FROM `qbmdt_reports` r
@@ -407,45 +438,84 @@ QB.callback.register('qbmdt:server:report', function(src, value)
         LEFT JOIN `qbmdt_charges` c ON c.`code` = r.`charge_code` WHERE r.`id` = ?]], { id }))
 end)
 
-QB.callback.register('qbmdt:server:createReport', function(src, input)
-    if not databaseReady then return nil, 'MDT database is still starting. Try again shortly.' end
-    if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
+local function createReport(src, input)
+    local rules = C.reports or {}
     local title = cleanText(input.title, 160, false)
     local narrative = cleanText(input.narrative, 8000, false)
-    local subject = cleanCid(input.citizenid)
+    local subjectText = cleanText(input.citizenid, 96, false)
     local chargeSelection = cleanText(input.charge, 128, false)
-    local chargeCode
-    local subjectGiven = type(input.citizenid) == 'string' and input.citizenid:match('%S') ~= nil
     local missing = missingRequired('report', { 'title', 'subject', 'charge', 'narrative' },
-        { title = title, subject = subjectGiven and 'x' or '', charge = chargeSelection, narrative = narrative })
+        { title = title, subject = subjectText, charge = chargeSelection, narrative = narrative })
     if missing then return nil, missing end
-    if subjectGiven and not personExists(subject) then return nil, 'Citizen ID not found. Check the subject citizen ID.' end
+
+    local subject, subjectFree
+    if subjectText ~= '' then
+        local cid = cleanCid(subjectText)
+        if cid and personExists(cid) then
+            subject = cid
+        else
+            local resolved, ambiguous
+            if rules.resolveSubjectByName ~= false then resolved, ambiguous = resolvePersonByName(subjectText) end
+            if resolved then
+                subject = resolved
+            elseif ambiguous then
+                return nil, ('More than one citizen is named "%s". Use the citizen ID instead.'):format(subjectText)
+            elseif cid and cid:find('%d') then
+                return nil, 'Citizen ID not found. Check the subject citizen ID.'
+            elseif rules.allowUnknownSubject == false then
+                return nil, ('Subject must be a citizen ID. No citizen matches "%s".'):format(subjectText)
+            else
+                subjectFree = subjectText
+            end
+        end
+    end
+
+    local chargeCode, chargeFree
     if chargeSelection ~= '' then
-        local charge
         for _, cached in ipairs(chargeCache) do
             if cached.code:upper() == chargeSelection:upper() or cached.label:lower() == chargeSelection:lower() then
-                charge = cached
+                chargeCode = cached.code
                 break
             end
         end
-        if not charge then return nil, 'Select a charge from the suggestions.' end
-        chargeCode = charge.code
-    else
-        chargeCode = nil
+        if not chargeCode then
+            if rules.allowCustomCharges == false then
+                return nil, ('"%s" is not in the charge list. Select a charge from the suggestions.'):format(chargeSelection)
+            end
+            chargeFree = chargeSelection
+        end
     end
+
     local author = citizenId(src)
-    if not author then return nil, 'author unavailable' end
+    if not author then return nil, 'Your character could not be identified. Reconnect and try again.' end
+    -- A Lua table cannot hold nil, so absent optional values are bound as explicit SQL NULL.
+    local NULL = QB.sql.NULL
     local id, err = QB.sql.insert([[INSERT INTO `qbmdt_reports`
-        (`title`,`narrative`,`subject_citizenid`,`charge_code`,`author_citizenid`) VALUES (?,?,?,?,?)]],
-        { title, narrative, subject, chargeCode, author })
-    if not id then return nil, err or 'database error' end
+        (`title`,`narrative`,`subject_citizenid`,`subject_text`,`charge_code`,`charge_text`,`author_citizenid`) VALUES (?,?,?,?,?,?,?)]],
+        { title, narrative, subject or NULL, subjectFree or NULL, chargeCode or NULL, chargeFree or NULL, author })
+    if not id then
+        logError('createReport insert failed', err)
+        return nil, 'The report could not be saved (database error). Ask an administrator to check the server console.'
+    end
     if chargeCode and subject then
-        QB.sql.insert([[INSERT INTO `qbmdt_criminal_records`
+        local _, recordErr = QB.sql.insert([[INSERT INTO `qbmdt_criminal_records`
             (`citizenid`,`charge_code`,`notes`,`author_citizenid`) VALUES (?,?,?,?)]],
             { subject, chargeCode, ('Report #%s: %s'):format(id, title):sub(1, 1000), author })
+        if recordErr then logError('createReport criminal record insert failed', recordErr) end
     end
     audit(src, 'report.create', 'report', id, title)
     return id
+end
+
+QB.callback.register('qbmdt:server:createReport', function(src, input)
+    if not databaseReady then return nil, 'MDT database is still starting. Try again shortly.' end
+    if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
+    local ok, id, err = pcall(createReport, src, input)
+    if not ok then
+        logError('createReport raised an error', id)
+        return nil, 'The report could not be saved because of a server error. It has been logged.'
+    end
+    return id, err
 end)
 
 QB.callback.register('qbmdt:server:closeReport', function(src, value)
@@ -501,7 +571,7 @@ QB.callback.register('qbmdt:server:createCase', function(src, input)
         for _, entry in ipairs(requestedReports) do
             local value = type(entry) == 'table' and entry.value or entry
             if type(value) == 'string' then
-                local ok, decoded = pcall(json.decode, value)
+                local ok, decoded = pcall(function() return json.decode(value) end)
                 if ok then value = decoded end
             end
             local reportId = cleanId(value)
@@ -590,14 +660,16 @@ end)
 
 QB.callback.register('qbmdt:server:bolos', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return withTimes(QB.sql.query(([[SELECT `id`,`subject_type`,`subject_identifier`,`title`,`description`,
-        IF(`status` = 'active' AND `expires_at` IS NOT NULL AND `expires_at` <= NOW(),'expired',`status`) AS `status`,
-        `author_citizenid`,DATE_FORMAT(`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,]] .. ts('`updated_at`') .. [[ AS `updated_at` FROM `qbmdt_bolos`
-        ORDER BY (`status` = 'active' AND (`expires_at` IS NULL OR `expires_at` > NOW())) DESC,`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {})
+    return withTimes(QB.sql.query(([[SELECT b.`id`,b.`subject_type`,b.`subject_identifier`,
+        COALESCE(b.`subject_label`,IF(b.`subject_type` = 'person' AND p.`citizenid` IS NOT NULL,CONCAT(p.`name`,' (',p.`citizenid`,')'),NULL),b.`subject_identifier`) AS `subject_label`,
+        b.`title`,b.`description`,
+        IF(b.`status` = 'active' AND b.`expires_at` IS NOT NULL AND b.`expires_at` <= NOW(),'expired',b.`status`) AS `status`,
+        b.`author_citizenid`,DATE_FORMAT(b.`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,]] .. ts('b.`updated_at`') .. [[ AS `updated_at` FROM `qbmdt_bolos` b
+        LEFT JOIN `players` p ON b.`subject_type` = 'person' AND p.`citizenid` COLLATE utf8mb4_unicode_ci = b.`subject_identifier` COLLATE utf8mb4_unicode_ci
+        ORDER BY (b.`status` = 'active' AND (b.`expires_at` IS NULL OR b.`expires_at` > NOW())) DESC,b.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {})
 end)
 
-QB.callback.register('qbmdt:server:createBolo', function(src, input)
-    if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
+local function createBolo(src, input)
     local kinds = { person = true, vehicle = true }
     local kind = kinds[input.subject_type] and input.subject_type or nil
     local identifier = cleanText(input.identifier, 96, false)
@@ -608,31 +680,50 @@ QB.callback.register('qbmdt:server:createBolo', function(src, input)
     if identifier == '' then return nil, kind == 'vehicle' and 'Enter the vehicle plate.' or 'Enter a citizen ID or name for the subject.' end
     local missing = missingRequired('bolo', { 'title', 'description' }, { title = title, description = description })
     if missing then return nil, missing end
+    -- subject_identifier stays the lookup key (citizen ID, plate, or the free text);
+    -- subject_label is what the BOLO list shows: the name entered, or "First Last (CID)".
+    local label = identifier
     if kind == 'person' then
         local rules = C.bolo or {}
         local cid = cleanCid(identifier)
         if cid and personExists(cid) then
             identifier = cid
+            label = personLabel(cid)
         else
-            local matches = rules.resolvePersonByName ~= false and QB.sql.query(
-                'SELECT `citizenid` FROM `players` WHERE `deleted_at` IS NULL AND LOWER(`name`) = LOWER(?) LIMIT 2', { identifier }) or {}
-            if #matches == 1 then
-                identifier = matches[1].citizenid
-            elseif #matches > 1 then
+            local resolved, ambiguous
+            if rules.resolvePersonByName ~= false then resolved, ambiguous = resolvePersonByName(identifier) end
+            if resolved then
+                label = personLabel(resolved)
+                identifier = resolved
+            elseif ambiguous then
                 return nil, ('More than one citizen is named "%s". Use the citizen ID instead.'):format(identifier)
             elseif rules.allowUnknownPersonSubject == false then
                 return nil, ('No citizen matches "%s". Enter a valid citizen ID or full name.'):format(identifier)
             end
         end
-    elseif kind == 'vehicle' then
+    else
         identifier = identifier:upper()
+        label = identifier
     end
     local id, err = QB.sql.insert([[INSERT INTO `qbmdt_bolos`
-        (`subject_type`,`subject_identifier`,`title`,`description`,`author_citizenid`,`expires_at`)
-        VALUES (?,?,?,?,?,DATE_ADD(NOW(), INTERVAL ? DAY))]], { kind, identifier, title, description, citizenId(src), days })
-    if not id then return nil, err or 'The BOLO could not be saved. Try again.' end
+        (`subject_type`,`subject_identifier`,`subject_label`,`title`,`description`,`author_citizenid`,`expires_at`)
+        VALUES (?,?,?,?,?,?,DATE_ADD(NOW(), INTERVAL ? DAY))]], { kind, identifier, label:sub(1, 160), title, description, citizenId(src), days })
+    if not id then
+        logError('createBolo insert failed', err)
+        return nil, 'The BOLO could not be saved (database error). Ask an administrator to check the server console.'
+    end
     audit(src, 'bolo.create', 'bolo', id, identifier)
     return id
+end
+
+QB.callback.register('qbmdt:server:createBolo', function(src, input)
+    if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
+    local ok, id, err = pcall(createBolo, src, input)
+    if not ok then
+        logError('createBolo raised an error', id)
+        return nil, 'The BOLO could not be saved because of a server error. It has been logged.'
+    end
+    return id, err
 end)
 
 QB.callback.register('qbmdt:server:resolveBolo', function(src, value)

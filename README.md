@@ -42,8 +42,10 @@ event; hiding a page in the client is never treated as authorization.
   | Criminal record | `criminal.notes` | `false` |
   | Medical record | `medical.notes` | `true` |
 
-  Titles, citizen IDs / plates and the criminal-record charge are always required. A subject or charge that is entered is always validated.
+  Titles, citizen IDs / plates and the criminal-record charge are always required.
 - `Config.mdt.reports.requireSubject` / `requireCharge` still work as aliases: if either the alias or the matching `requiredFields.report` entry is `true`, the field is required.
+- Report subject and charge: `Config.mdt.reports.resolveSubjectByName` (default `true`) links a subject typed as an exact full name to that citizen when exactly one matches; `allowUnknownSubject` (default `true`) otherwise stores it as unlinked text, or rejects it with "Subject must be a citizen ID" when `false`; `allowCustomCharges` (default `true`) stores a charge outside the catalogue as text on the report (no criminal record is created), or rejects it when `false`. A mistyped citizen ID (contains a digit) is always rejected as not found.
+- BOLOs store and list the subject as a readable label: the name as entered, or `First Last (CID)` when it resolves to one citizen (`Config.mdt.bolo.*`). The version 4 migration adds `subject_text`, `charge_text` (reports) and `subject_label` (BOLOs).
 - `Config.mdt.dateFormat` (default `YYYY-MM-DD HH:mm`; tokens `YYYY MM DD HH mm ss`) controls every date/time shown in the terminal.
 
 ## Database

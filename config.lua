@@ -75,6 +75,9 @@ Config.mdt = {
     reports = {
         requireSubject = false,         -- legacy alias of requiredFields.report.subject (either one being true makes it required)
         requireCharge = false,          -- legacy alias of requiredFields.report.charge
+        resolveSubjectByName = true,    -- true = a subject that is not a citizen ID is matched to a citizen by exact full name (a unique match is linked)
+        allowUnknownSubject = true,     -- true = a subject that matches no citizen is stored as unlinked free text; false = reject with "Subject must be a citizen ID"
+        allowCustomCharges = true,      -- true = a charge that is not in the charge list is stored as free text; false = reject it
     },
     -- Which optional form fields must be filled in before a record is saved. The server enforces
     -- this and names the missing field in its error; the terminal marks the field with an asterisk.
@@ -159,9 +162,12 @@ if QB and QB.config and QB.config.adopt then
         ['mdt.operations.boloDefaultDays'] = 'Sets the default number of days prefilled when an authorised user creates a BOLO. The submitted duration is clamped between one day and the configured BOLO maximum.',
         ['mdt.operations.boloMaxDays'] = 'Sets the longest BOLO duration, in days, that the server will accept. Longer submitted values are reduced to this limit before the BOLO is stored.',
         ['mdt.dateFormat'] = 'Sets how every MDT date and time is displayed. Use the tokens YYYY, MM, DD, HH, mm and ss, for example DD/MM/YYYY HH:mm. Times are shown in the database server time zone.',
-        ['mdt.reports.requireSubject'] = 'When enabled the server rejects incident reports that do not name an existing subject citizen ID. Leave it off to allow reports with no suspect.',
-        ['mdt.reports.requireCharge'] = 'When enabled the server rejects incident reports without a charge from the charge catalogue. A charge that is entered is always validated against the catalogue.',
-        ['mdt.bolo.resolvePersonByName'] = 'When enabled, a Person BOLO subject that is not a known citizen ID is looked up by exact, case-insensitive full name. A single match is stored as that citizen ID; several matches are rejected so the officer can use the citizen ID.',
+        ['mdt.reports.requireSubject'] = 'When enabled the server rejects incident reports that have no subject. Leave it off to allow reports with no suspect.',
+        ['mdt.reports.resolveSubjectByName'] = 'When enabled, a report subject that is not a citizen ID is looked up by exact, case-insensitive full name and linked when exactly one citizen matches. Several matches are rejected so the officer can use the citizen ID.',
+        ['mdt.reports.allowUnknownSubject'] = 'When enabled, a report subject that matches no citizen is saved as unlinked free text. When disabled the report is rejected with the message "Subject must be a citizen ID".',
+        ['mdt.reports.allowCustomCharges'] = 'When enabled, a report charge that is not in the charge catalogue is saved as free text on the report (no criminal record entry is created). When disabled it is rejected and the officer must pick a catalogue charge.',
+        ['mdt.reports.requireCharge'] = 'When enabled the server rejects incident reports without a charge. Whether a charge outside the catalogue is accepted is controlled by mdt.reports.allowCustomCharges.',
+        ['mdt.bolo.resolvePersonByName'] = 'When enabled, a Person BOLO subject that is not a known citizen ID is looked up by exact, case-insensitive full name. A single match is stored as that citizen (shown as First Last (CID)); several matches are rejected so the officer can use the citizen ID.',
         ['mdt.bolo.allowUnknownPersonSubject'] = 'When enabled, a Person BOLO subject that matches no citizen ID or name is stored as free text (for example a name or description). When disabled the BOLO is rejected with a clear message.',
         ['mdt.requiredFields.report.subject'] = 'When enabled, incident reports must name an existing subject citizen ID. Same as the older mdt.reports.requireSubject option, which still works.',
         ['mdt.requiredFields.report.charge'] = 'When enabled, incident reports must carry a charge from the charge catalogue. Same as the older mdt.reports.requireCharge option, which still works.',

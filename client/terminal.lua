@@ -126,7 +126,7 @@ local function openTerminal(role, policeBoss)
         local linked = {}
         for _, report in ipairs(row.reports or {}) do linked[#linked + 1] = {
             id = tostring(report.id), title = ('Report #%s · %s'):format(tostring(report.id), tostring(report.title or 'Untitled')),
-            description = tostring(report.subject_citizenid or 'Unknown'), timestamp = when(report.updated_at, ''),
+            description = tostring(report.subject_citizenid or report.subject_text or 'Unknown'), timestamp = when(report.updated_at, ''),
             icon = 'file-text', tone = tostring(report.status) == 'open' and 'warning' or 'neutral',
             actions = { { id = 'report:open-linked', label = 'Open report', icon = 'file-search' } },
         } end
@@ -146,8 +146,8 @@ local function openTerminal(role, policeBoss)
             description = tostring(row.narrative or ''), actions = actions, blocks = {
             { type = 'details', title = 'Report details', columns = 2, items = {
                 { label = 'Status', value = tostring(row.status or 'unknown') },
-                { label = 'Subject', value = tostring(row.subject_name or row.subject_citizenid or 'Unknown') },
-                { label = 'Charge', value = tostring(row.charge_label or 'None') },
+                { label = 'Subject', value = tostring(row.subject_name or row.subject_citizenid or row.subject_text or 'Unknown') },
+                { label = 'Charge', value = tostring(row.charge_label or row.charge_text or 'None') },
                 { label = 'Fine', value = tostring(row.fine or '—') },
                 { label = 'Author', value = tostring(row.author_name or row.author_citizenid or 'Unknown') },
                 { label = 'Created', value = when(row.created_at, '—') },
@@ -264,7 +264,7 @@ local function openTerminal(role, policeBoss)
             title = 'Incident reports', blocks = { { type = 'actions', actions = {
                 action('report:create', 'New incident report', 'file-plus', {
                     { id = 'title', label = 'Title', type = 'text', required = true, maxLength = 160 },
-                    { id = 'citizenid', label = req('report', 'subject') and 'Subject citizen ID' or 'Subject citizen ID (optional)',
+                    { id = 'citizenid', label = req('report', 'subject') and 'Subject (citizen ID or name)' or 'Subject (citizen ID or name, optional)',
                         type = 'text', maxLength = 64, required = req('report', 'subject') },
                     { id = 'charge', label = req('report', 'charge') and 'Charge' or 'Charge (optional)', type = 'combobox',
                         required = req('report', 'charge'), options = chargeOptions,
@@ -382,7 +382,7 @@ local function openTerminal(role, policeBoss)
         local output = {}
         for _, row in ipairs(rows) do output[#output + 1] = {
             id = tostring(row.id), status = statusCell(row.status), title = row.title,
-            subject = row.subject_name or row.subject_citizenid or 'Unknown', charge = row.charge_label or '—', updated = when(row.updated_at, '—'),
+            subject = row.subject_name or row.subject_citizenid or row.subject_text or 'Unknown', charge = row.charge_label or row.charge_text or '—', updated = when(row.updated_at, '—'),
         } end
         local view = findView('reports')
         view.content.blocks[2] = { type = 'table', id = 'report-list', title = 'Recent reports', searchable = true, pageSize = 12,
@@ -429,7 +429,7 @@ local function openTerminal(role, policeBoss)
         if not rows then return nil, err end
         local output = {}
         for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), status = statusCell(row.status),
-            kind = tostring(row.subject_type or ''), subject = tostring(row.subject_identifier or ''), title = tostring(row.title or ''),
+            kind = tostring(row.subject_type or ''), subject = tostring(row.subject_label or row.subject_identifier or ''), title = tostring(row.title or ''),
             description = tostring(row.description or ''), expires = when(row.expires_at, '—') } end
         findView('bolos').content.blocks[2] = { type = 'table', id = 'bolo-list', title = 'Current and recent BOLOs', searchable = true, pageSize = 12,
             columns = { { key = 'id', label = '#', sortable = true }, { key = 'status', label = 'status', sortable = true },
@@ -641,7 +641,7 @@ local function openTerminal(role, policeBoss)
                 return showResult({ title = ('BOLO #%s · %s'):format(tostring(selectedBolo.id), tostring(selectedBolo.title or 'Untitled')),
                     description = tostring(selectedBolo.description or ''), actions = actions, blocks = { {
                     type = 'details', columns = 2, items = { { label = 'status', value = tostring(selectedBolo.status or 'unknown') },
-                        { label = 'Type', value = tostring(selectedBolo.subject_type or '—') }, { label = 'Subject', value = tostring(selectedBolo.subject_identifier or '—') },
+                        { label = 'Type', value = tostring(selectedBolo.subject_type or '—') }, { label = 'Subject', value = tostring(selectedBolo.subject_label or selectedBolo.subject_identifier or '—') },
                         { label = 'Expires', value = when(selectedBolo.expires_at, '—') }, { label = 'Created by', value = tostring(selectedBolo.author_citizenid or 'Unknown') }, },
                 } } })
             elseif selectedId == 'bolo:resolve' and selectedBolo and policeAccess then

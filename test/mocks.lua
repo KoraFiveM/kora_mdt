@@ -146,6 +146,7 @@ function M.install()
             end,
         },
         sql = {
+            NULL = '\0qbsql:null\0',
             single = function(query, params)
                 if handle.sqlSingle then return handle.sqlSingle(query, params) end
                 if query:find('qbmdt_licences', 1, true) then
@@ -167,6 +168,9 @@ function M.install()
                 return 1
             end,
             insert = function(query, params)
+                if handle.sqlInsertError and query:find(handle.sqlInsertError.match, 1, true) then
+                    return nil, handle.sqlInsertError.message
+                end
                 handle.sqlInserts[#handle.sqlInserts + 1] = { query = query, params = params }
                 return #handle.sqlInserts
             end,
