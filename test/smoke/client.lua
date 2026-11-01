@@ -52,7 +52,7 @@ _G.QB = {
         remove = function(entity) removed[#removed + 1] = entity; return true end,
     },
 }
--- kora_lib sets QB = Kora (the same table); the client now reads Kora.nui.
+-- kora_lib sets QB = Kora (the same table).
 _G.Kora = _G.QB
 
 local exportImpls = {
