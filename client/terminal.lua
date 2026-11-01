@@ -447,7 +447,7 @@ local function openTerminal(role, policeBoss)
         refreshBolos()
     end
 
-    QB.nui.registerApp({
+    Kora.nui.registerApp({
         id = 'qbmdt:terminal', title = role == 'medical' and 'Medical Records Terminal' or 'Mobile Data Terminal',
         description = role == 'medical' and 'Patient and treatment records' or 'Law enforcement operations and records',
         icon = role == 'medical' and 'heart-pulse' or 'monitor-smartphone', width = 1240, height = 820,
@@ -661,7 +661,7 @@ local function openTerminal(role, policeBoss)
             return {}
         end,
     })
-    QB.nui.openApp('qbmdt:terminal')
+    Kora.nui.openApp('qbmdt:terminal')
 end
 
 RegisterNetEvent('qbmdt:client:open', openTerminal)
