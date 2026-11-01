@@ -21,6 +21,7 @@ shared_scripts {
     '@kora_lib/init.lua',
     '@kora_sql/init.lua',
     'config.lua',
+    'shared/required.lua',
 }
 
 server_scripts { 'server/migrate.lua', 'server/main.lua' }

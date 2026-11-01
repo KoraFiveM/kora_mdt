@@ -35,6 +35,12 @@ local function cleanText(value, maximum, required)
     if value == '' and required then return nil end
     return value:sub(1, maximum)
 end
+-- Names the first required (per Config.mdt.requiredFields) field that is empty.
+local function missingRequired(form, order, values)
+    local present = {}
+    for field, value in pairs(values) do present[field] = value ~= nil and value ~= '' end
+    return MdtRequired.firstMissing(form, order, present)
+end
 local function cleanId(value)
     local id = math.floor(tonumber(value) or 0)
     return id > 0 and id or nil
@@ -289,15 +295,19 @@ end)
 QB.callback.register('qbmdt:server:addCriminal', function(src, wanted, code, notes)
     if not can(src, 'police') then return false, 'not authorised' end
     wanted = cleanCid(wanted)
-    local selection = cleanText(code, 128, true)
+    local selection = cleanText(code, 128, false)
     local author = citizenId(src)
-    if not wanted or not selection or not author then return false, 'invalid record' end
+    notes = cleanText(notes, 1000, false)
+    local missing = missingRequired('criminal', { 'citizenid', 'charge', 'notes' },
+        { citizenid = wanted, charge = selection, notes = notes })
+    if missing then return false, missing end
+    if not author then return false, 'author unavailable' end
     local charge = QB.sql.single('SELECT `code` FROM `qbmdt_charges` WHERE `active` = 1 AND (`code` = ? OR `label` = ?)',
         { selection:upper(), selection })
     if not charge then return false, 'unknown charge' end
     if not personExists(wanted) then return false, 'citizen not found' end
     local written, err = QB.sql.execute('INSERT INTO `qbmdt_criminal_records` (`citizenid`,`charge_code`,`notes`,`author_citizenid`) VALUES (?,?,?,?)',
-        { wanted, charge.code, tostring(notes or ''):sub(1, 1000), author })
+        { wanted, charge.code, notes, author })
     if not written then return false, err or 'database error' end
     audit(src, 'criminal.create', 'citizen', wanted, code)
     return true
@@ -307,10 +317,13 @@ QB.callback.register('qbmdt:server:addMedical', function(src, wanted, notes)
     if not can(src, 'medical') then return false, 'not authorised' end
     wanted = cleanCid(wanted)
     local author = citizenId(src)
-    if not wanted or not author or type(notes) ~= 'string' or notes == '' then return false, 'invalid record' end
+    notes = cleanText(notes, 1000, false)
+    local missing = missingRequired('medical', { 'citizenid', 'notes' }, { citizenid = wanted, notes = notes })
+    if missing then return false, missing end
+    if not author then return false, 'author unavailable' end
     if not personExists(wanted) then return false, 'citizen not found' end
     local written, err = QB.sql.execute('INSERT INTO `qbmdt_medical_records` (`citizenid`,`notes`,`author_citizenid`) VALUES (?,?,?)',
-        { wanted, notes:sub(1, 1000), author })
+        { wanted, notes, author })
     if not written then return false, err or 'database error' end
     audit(src, 'medical.create', 'citizen', wanted)
     return true
@@ -397,17 +410,16 @@ end)
 QB.callback.register('qbmdt:server:createReport', function(src, input)
     if not databaseReady then return nil, 'MDT database is still starting. Try again shortly.' end
     if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
-    local title = cleanText(input.title, 160, true)
-    local narrative = cleanText(input.narrative, 8000, true)
+    local title = cleanText(input.title, 160, false)
+    local narrative = cleanText(input.narrative, 8000, false)
     local subject = cleanCid(input.citizenid)
     local chargeSelection = cleanText(input.charge, 128, false)
     local chargeCode
-    if not title or not narrative then return nil, 'title and narrative are required' end
-    local rules = C.reports or {}
     local subjectGiven = type(input.citizenid) == 'string' and input.citizenid:match('%S') ~= nil
-    if not subjectGiven and rules.requireSubject then return nil, 'Subject citizen ID is required.' end
+    local missing = missingRequired('report', { 'title', 'subject', 'charge', 'narrative' },
+        { title = title, subject = subjectGiven and 'x' or '', charge = chargeSelection, narrative = narrative })
+    if missing then return nil, missing end
     if subjectGiven and not personExists(subject) then return nil, 'Citizen ID not found. Check the subject citizen ID.' end
-    if chargeSelection == '' and rules.requireCharge then return nil, 'A charge is required.' end
     if chargeSelection ~= '' then
         local charge
         for _, cached in ipairs(chargeCache) do
@@ -474,11 +486,12 @@ end)
 
 QB.callback.register('qbmdt:server:createCase', function(src, input)
     if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
-    local title = cleanText(input.title, 160, true)
-    local summary = cleanText(input.summary, 8000, true)
+    local title = cleanText(input.title, 160, false)
+    local summary = cleanText(input.summary, 8000, false)
     local priorities = { low = true, normal = true, high = true, critical = true }
     local priority = priorities[input.priority] and input.priority or 'normal'
-    if not title or not summary then return nil, 'title and summary are required' end
+    local missing = missingRequired('case', { 'title', 'summary' }, { title = title, summary = summary })
+    if missing then return nil, missing end
 
     local reportIds, seenReports = {}, {}
     local requestedReports = input.report_ids
@@ -551,10 +564,11 @@ end)
 QB.callback.register('qbmdt:server:createWarrant', function(src, input)
     if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
     local target = cleanCid(input.citizenid)
-    local reason = cleanText(input.reason, 1000, true)
+    local reason = cleanText(input.reason, 1000, false)
     local days = math.max(1, math.min(C.operations.warrantMaxDays, math.floor(tonumber(input.days) or C.operations.warrantDefaultDays)))
-    if not personExists(target) then return nil, 'citizen not found' end
-    if not reason then return nil, 'reason is required' end
+    local missing = missingRequired('warrant', { 'citizenid', 'reason' }, { citizenid = target, reason = reason })
+    if missing then return nil, missing end
+    if not personExists(target) then return nil, 'Citizen ID not found. Check the citizen ID.' end
     local id, err = QB.sql.insert([[INSERT INTO `qbmdt_warrants`
         (`citizenid`,`reason`,`author_citizenid`,`expires_at`) VALUES (?,?,?,DATE_ADD(NOW(), INTERVAL ? DAY))]],
         { target, reason, citizenId(src), days })
@@ -586,14 +600,14 @@ QB.callback.register('qbmdt:server:createBolo', function(src, input)
     if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
     local kinds = { person = true, vehicle = true }
     local kind = kinds[input.subject_type] and input.subject_type or nil
-    local identifier = cleanText(input.identifier, 96, true)
-    local title = cleanText(input.title, 160, true)
-    local description = cleanText(input.description, 1500, true)
+    local identifier = cleanText(input.identifier, 96, false)
+    local title = cleanText(input.title, 160, false)
+    local description = cleanText(input.description, 1500, false)
     local days = math.max(1, math.min(C.operations.boloMaxDays, math.floor(tonumber(input.days) or C.operations.boloDefaultDays)))
     if not kind then return nil, 'Choose a valid subject type (person or vehicle).' end
-    if not identifier then return nil, kind == 'vehicle' and 'Enter the vehicle plate.' or 'Enter a citizen ID or name for the subject.' end
-    if not title then return nil, 'Enter an alert title.' end
-    if not description then return nil, 'Enter a description and instructions.' end
+    if identifier == '' then return nil, kind == 'vehicle' and 'Enter the vehicle plate.' or 'Enter a citizen ID or name for the subject.' end
+    local missing = missingRequired('bolo', { 'title', 'description' }, { title = title, description = description })
+    if missing then return nil, missing end
     if kind == 'person' then
         local rules = C.bolo or {}
         local cid = cleanCid(identifier)

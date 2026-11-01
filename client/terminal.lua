@@ -32,7 +32,7 @@ local function openTerminal(role, policeBoss)
     local medicalAccess = role == 'medical' or role == 'judge'
     local policeAccess = criminalAccess
     policeBoss = role == 'police' and policeBoss == true
-    local reportRules = C.reports or {}
+    local function req(form, field) return MdtRequired.isRequired(form, field) end
     local chargeOptions = {}
     local reportOptions = {}
     local caseOptions = {}
@@ -264,12 +264,12 @@ local function openTerminal(role, policeBoss)
             title = 'Incident reports', blocks = { { type = 'actions', actions = {
                 action('report:create', 'New incident report', 'file-plus', {
                     { id = 'title', label = 'Title', type = 'text', required = true, maxLength = 160 },
-                    { id = 'citizenid', label = reportRules.requireSubject and 'Subject citizen ID' or 'Subject citizen ID (optional)',
-                        type = 'text', maxLength = 64, required = reportRules.requireSubject == true },
-                    { id = 'charge', label = reportRules.requireCharge and 'Charge' or 'Charge (optional)', type = 'combobox',
-                        required = reportRules.requireCharge == true, options = chargeOptions,
+                    { id = 'citizenid', label = req('report', 'subject') and 'Subject citizen ID' or 'Subject citizen ID (optional)',
+                        type = 'text', maxLength = 64, required = req('report', 'subject') },
+                    { id = 'charge', label = req('report', 'charge') and 'Charge' or 'Charge (optional)', type = 'combobox',
+                        required = req('report', 'charge'), options = chargeOptions,
                         placeholder = 'Type to search charges...' },
-                    { id = 'narrative', label = 'Incident narrative', type = 'textarea', required = true, maxLength = 8000 },
+                    { id = 'narrative', label = 'Incident narrative', type = 'textarea', required = req('report', 'narrative'), maxLength = 8000 },
                 }, 'primary'), action('report:refresh', 'Refresh reports', 'refresh-cw'),
             } } } } }
         navigation[#navigation + 1] = { id = 'cases', label = 'Cases', icon = 'folder-search', content = {
@@ -280,7 +280,7 @@ local function openTerminal(role, policeBoss)
                         { value = 'low', label = 'Low' }, { value = 'normal', label = 'Normal' },
                         { value = 'high', label = 'High' }, { value = 'critical', label = 'Critical' },
                     } },
-                    { id = 'summary', label = 'Investigation summary', type = 'textarea', required = true, maxLength = 8000 },
+                    { id = 'summary', label = 'Investigation summary', type = 'textarea', required = req('case', 'summary'), maxLength = 8000 },
                 }, 'primary'), action('case:attach-report', 'Attach report to case', 'plus', {
                     { id = 'case_id', label = 'Case', type = 'select', searchable = true, required = true,
                         options = caseOptions, placeholder = 'Search cases by number or title...' },
@@ -292,7 +292,7 @@ local function openTerminal(role, policeBoss)
             title = 'Warrants', blocks = { { type = 'actions', actions = {
                 action('warrant:create', 'Issue warrant', 'file-warning', {
                     { id = 'citizenid', label = 'Citizen ID', type = 'text', required = true, maxLength = 64 },
-                    { id = 'reason', label = 'Probable cause / reason', type = 'textarea', required = true, maxLength = 1000 },
+                    { id = 'reason', label = 'Probable cause / reason', type = 'textarea', required = req('warrant', 'reason'), maxLength = 1000 },
                     { id = 'days', label = 'Valid for days', type = 'number', required = true, default = C.operations.warrantDefaultDays, min = 1, max = C.operations.warrantMaxDays },
                 }, 'primary'), action('warrant:refresh', 'Refresh warrants', 'refresh-cw'),
             } } } } }
@@ -304,7 +304,7 @@ local function openTerminal(role, policeBoss)
                     } },
                     { id = 'identifier', label = 'Citizen ID, name or plate', type = 'text', required = true, maxLength = 96 },
                     { id = 'title', label = 'Alert title', type = 'text', required = true, maxLength = 160 },
-                    { id = 'description', label = 'Description and instructions', type = 'textarea', required = true, maxLength = 1500 },
+                    { id = 'description', label = 'Description and instructions', type = 'textarea', required = req('bolo', 'description'), maxLength = 1500 },
                     { id = 'days', label = 'Valid for days', type = 'number', required = true, default = C.operations.boloDefaultDays, min = 1, max = C.operations.boloMaxDays },
                 }, 'primary'), action('bolo:refresh', 'Refresh BOLOs', 'refresh-cw'),
             } } } } }
@@ -314,7 +314,7 @@ local function openTerminal(role, policeBoss)
                     { id = 'citizenid', label = 'Citizen ID', type = 'text', required = true },
                     { id = 'charge', label = 'Charge', type = 'combobox', required = true, options = chargeOptions,
                         placeholder = 'Type to search charges...' },
-                    { id = 'notes', label = 'Notes', type = 'textarea', maxLength = 1000 },
+                    { id = 'notes', label = 'Notes', type = 'textarea', required = req('criminal', 'notes'), maxLength = 1000 },
                 }), action('analysis:start', 'Analyse ballistic casing', 'microscope', {
                     { id = 'caseid', label = 'Casing case ID', type = 'text', required = true },
                 }),
@@ -345,7 +345,7 @@ local function openTerminal(role, policeBoss)
             title = 'Medical records', blocks = { { type = 'actions', actions = {
                 action('medical:create', 'Add medical record', 'file-plus', {
                     { id = 'citizenid', label = 'Citizen ID', type = 'text', required = true },
-                    { id = 'notes', label = 'Treatment / notes', type = 'textarea', required = true, maxLength = 1000 },
+                    { id = 'notes', label = 'Treatment / notes', type = 'textarea', required = req('medical', 'notes'), maxLength = 1000 },
                 }),
             } } } } }
     end

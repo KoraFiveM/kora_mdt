@@ -73,8 +73,19 @@ Config.mdt = {
     },
     dateFormat = 'YYYY-MM-DD HH:mm', -- tokens: YYYY MM DD HH mm ss; used for every date/time shown in the MDT
     reports = {
-        requireSubject = false,         -- true = incident reports must name an existing subject citizen ID
-        requireCharge = false,          -- true = incident reports must carry a charge from the charge list
+        requireSubject = false,         -- legacy alias of requiredFields.report.subject (either one being true makes it required)
+        requireCharge = false,          -- legacy alias of requiredFields.report.charge
+    },
+    -- Which optional form fields must be filled in before a record is saved. The server enforces
+    -- this and names the missing field in its error; the terminal marks the field with an asterisk.
+    -- Fields not listed here (titles, citizen IDs / plates, the criminal-record charge) are always required.
+    requiredFields = {
+        report = { subject = false, charge = false, narrative = true },
+        case = { summary = true },
+        warrant = { reason = true },
+        bolo = { description = true },
+        criminal = { notes = false },
+        medical = { notes = true },
     },
     bolo = {
         resolvePersonByName = true,       -- true = a Person subject that is not a citizen ID is matched to a citizen by exact full name (a unique match is stored as that citizen ID)
@@ -152,6 +163,14 @@ if QB and QB.config and QB.config.adopt then
         ['mdt.reports.requireCharge'] = 'When enabled the server rejects incident reports without a charge from the charge catalogue. A charge that is entered is always validated against the catalogue.',
         ['mdt.bolo.resolvePersonByName'] = 'When enabled, a Person BOLO subject that is not a known citizen ID is looked up by exact, case-insensitive full name. A single match is stored as that citizen ID; several matches are rejected so the officer can use the citizen ID.',
         ['mdt.bolo.allowUnknownPersonSubject'] = 'When enabled, a Person BOLO subject that matches no citizen ID or name is stored as free text (for example a name or description). When disabled the BOLO is rejected with a clear message.',
+        ['mdt.requiredFields.report.subject'] = 'When enabled, incident reports must name an existing subject citizen ID. Same as the older mdt.reports.requireSubject option, which still works.',
+        ['mdt.requiredFields.report.charge'] = 'When enabled, incident reports must carry a charge from the charge catalogue. Same as the older mdt.reports.requireCharge option, which still works.',
+        ['mdt.requiredFields.report.narrative'] = 'When enabled, incident reports must include an incident narrative. Disable it to allow reports with only a title.',
+        ['mdt.requiredFields.case.summary'] = 'When enabled, a new case must include an investigation summary.',
+        ['mdt.requiredFields.warrant.reason'] = 'When enabled, a warrant must include a probable cause / reason.',
+        ['mdt.requiredFields.bolo.description'] = 'When enabled, a BOLO must include a description and instructions.',
+        ['mdt.requiredFields.criminal.notes'] = 'When enabled, a criminal record entry must include notes.',
+        ['mdt.requiredFields.medical.notes'] = 'When enabled, a medical record must include treatment notes.',
         ['mdt.charges'] = 'Defines the charge catalogue seeded into the MDT database when it becomes ready. Each numbered row needs a unique code, display label, and non-negative fine; existing database rows with the same code are left intact.',
     } })
 end

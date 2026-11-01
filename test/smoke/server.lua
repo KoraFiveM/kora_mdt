@@ -1,6 +1,7 @@
 local h = dofile('test/harness.lua')
 local handle = dofile('test/mocks.lua').install()
 dofile('config.lua')
+dofile('shared/required.lua')
 dofile('server/main.lua')
 
 local function start(src)
@@ -153,6 +154,49 @@ h.test('report subject and charge are optional by default and enforced by config
     _, err = create(94, { title = 'x', narrative = 'y', citizenid = 'CID000777' })
     h.assertEqual(err, 'A charge is required.')
     Config.mdt.reports.requireCharge = false
+end)
+
+h.test('requiredFields config drives every create form with specific errors', function()
+    resetObservations()
+    handle.ensurePlayer(94)
+    readyMdt()
+    handle.sqlSingle = function(query, params)
+        if query:find('FROM `players`', 1, true) then return { citizenid = params[1] } end
+        if query:find('qbmdt_charges', 1, true) then return { code = 'SPD-01' } end
+    end
+    local reg = QB.callback.registry
+    local fields = Config.mdt.requiredFields
+
+    local _, err = reg['qbmdt:server:createReport'](94, { title = 'T' })
+    h.assertEqual(err, 'Incident narrative is required.')
+    fields.report.narrative = false
+    h.assertEqual(reg['qbmdt:server:createReport'](94, { title = 'T' }), 1)
+    fields.report.narrative = true
+    _, err = reg['qbmdt:server:createReport'](94, { narrative = 'n' })
+    h.assertEqual(err, 'Title is required.')
+    fields.report.subject = true
+    _, err = reg['qbmdt:server:createReport'](94, { title = 'T', narrative = 'n' })
+    h.assertEqual(err, 'Subject citizen ID is required.')
+    fields.report.subject = false
+
+    _, err = reg['qbmdt:server:createCase'](94, { title = 'C' })
+    h.assertEqual(err, 'Investigation summary is required.')
+    _, err = reg['qbmdt:server:createWarrant'](94, { citizenid = 'CID000777' })
+    h.assertEqual(err, 'Probable cause / reason is required.')
+    fields.warrant.reason = false
+    h.assertTrue(reg['qbmdt:server:createWarrant'](94, { citizenid = 'CID000777' }) ~= nil)
+    fields.warrant.reason = true
+    _, err = reg['qbmdt:server:createWarrant'](94, { reason = 'r' })
+    h.assertEqual(err, 'Citizen ID is required.')
+    _, err = reg['qbmdt:server:createBolo'](94, { subject_type = 'person', identifier = 'CID000777', title = 'T' })
+    h.assertEqual(err, 'Description and instructions is required.')
+    local ok
+    ok, err = reg['qbmdt:server:addCriminal'](94, 'CID000777', '', '')
+    h.assertEqual(err, 'Charge is required.')
+    fields.criminal.notes = true
+    ok, err = reg['qbmdt:server:addCriminal'](94, 'CID000777', 'SPD-01', '')
+    h.assertEqual(err, 'Notes is required.')
+    fields.criminal.notes = false
 end)
 
 h.test('every list returns readable time strings, never tables', function()

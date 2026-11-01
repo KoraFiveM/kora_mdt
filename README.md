@@ -29,7 +29,21 @@ event; hiding a page in the client is never treated as authorization.
 
 ## Reports and dates
 
-- `Config.mdt.reports.requireSubject` / `requireCharge` (both `false` by default) make the server reject incident reports without an existing subject citizen ID or a catalogue charge. A subject or charge that is entered is always validated.
+- `Config.mdt.requiredFields` chooses which form fields must be filled in. The server enforces it and returns an error naming the missing field (for example "Subject citizen ID is required."); the terminal marks required fields with an asterisk and pre-validates the form. Defaults keep the previous behaviour:
+
+  | Form | Option | Default |
+  | --- | --- | --- |
+  | Incident report | `report.subject` (existing citizen ID) | `false` |
+  | Incident report | `report.charge` (catalogue charge) | `false` |
+  | Incident report | `report.narrative` | `true` |
+  | Case | `case.summary` | `true` |
+  | Warrant | `warrant.reason` | `true` |
+  | BOLO | `bolo.description` | `true` |
+  | Criminal record | `criminal.notes` | `false` |
+  | Medical record | `medical.notes` | `true` |
+
+  Titles, citizen IDs / plates and the criminal-record charge are always required. A subject or charge that is entered is always validated.
+- `Config.mdt.reports.requireSubject` / `requireCharge` still work as aliases: if either the alias or the matching `requiredFields.report` entry is `true`, the field is required.
 - `Config.mdt.dateFormat` (default `YYYY-MM-DD HH:mm`; tokens `YYYY MM DD HH mm ss`) controls every date/time shown in the terminal.
 
 ## Database

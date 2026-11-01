@@ -91,6 +91,7 @@ _G.exports = setmetatable({}, {
 })
 
 dofile('config.lua')
+dofile('shared/required.lua')
 dofile('client/terminal.lua')
 dofile(arg[1] or 'client/main.lua')
 
