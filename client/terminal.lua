@@ -37,6 +37,27 @@ local function openTerminal(role, policeBoss)
     local reportOptions = {}
     local caseOptions = {}
     local selectedCharge
+    local function setChargeOptions(rows)
+        for i = #chargeOptions, 1, -1 do chargeOptions[i] = nil end
+        for _, charge in ipairs(rows) do chargeOptions[#chargeOptions + 1] = { value = charge.label, label = charge.label } end
+    end
+    local function chargeManagementContent(rows)
+        return { title = 'Charge management', description = 'Create charges for the criminal record and report tools.', blocks = {
+            { type = 'actions', actions = {
+                action('charge:create', 'Create charge', 'plus', {
+                    { id = 'code', label = 'Charge code', type = 'text', required = true, maxLength = 32 },
+                    { id = 'label', label = 'Charge name', type = 'text', required = true, maxLength = 128 },
+                    { id = 'fine', label = 'Fine', type = 'number', required = true, min = 0, max = 2000000000 },
+                }, 'primary'), action('charge:refresh', 'Refresh charges', 'refresh-cw'),
+            } },
+            { type = 'table', id = 'managed-charges', searchable = true, pageSize = 12,
+                columns = { { key = 'label', label = 'Charge', sortable = true },
+                    { key = 'fine', label = 'Fine', align = 'right', sortable = true },
+                    { key = 'active', label = 'Active', sortable = true } },
+                rows = rows, empty = 'No charges configured.',
+                action = 'charge:select', idKey = 'code' },
+        } }
+    end
     local function chargeContent(charge)
         return {
             title = charge.label,
@@ -54,13 +75,7 @@ local function openTerminal(role, policeBoss)
         }
     end
     if policeAccess then
-        local rows = QB.callback.trigger('qbmdt:server:charges') or {}
-        for _, charge in ipairs(rows) do
-            chargeOptions[#chargeOptions + 1] = {
-                value = charge.label,
-                label = charge.label,
-            }
-        end
+        setChargeOptions(QB.callback.trigger('qbmdt:server:charges') or {})
         local reports = QB.callback.trigger('qbmdt:server:reportOptions') or {}
         for _, report in ipairs(reports) do
             reportOptions[#reportOptions + 1] = {
@@ -320,23 +335,8 @@ local function openTerminal(role, policeBoss)
                 }),
             } } } } }
         if policeBoss then
-            navigation[#navigation + 1] = { id = 'charges', label = 'Charges', icon = 'scale', content = {
-                title = 'Charge management', description = 'Create charges for the criminal record and report tools.', blocks = {
-                    { type = 'actions', actions = {
-                        action('charge:create', 'Create charge', 'plus', {
-                            { id = 'code', label = 'Charge code', type = 'text', required = true, maxLength = 32 },
-                            { id = 'label', label = 'Charge name', type = 'text', required = true, maxLength = 128 },
-                            { id = 'fine', label = 'Fine', type = 'number', required = true, min = 0, max = 2000000000 },
-                        }, 'primary'), action('charge:refresh', 'Refresh charges', 'refresh-cw'),
-                    } },
-                    { type = 'table', id = 'managed-charges', searchable = true, pageSize = 12,
-                        columns = { { key = 'label', label = 'Charge', sortable = true },
-                            { key = 'fine', label = 'Fine', align = 'right', sortable = true },
-                            { key = 'active', label = 'Active', sortable = true } },
-                        rows = QB.callback.trigger('qbmdt:server:manageCharges') or {}, empty = 'No charges configured.',
-                        action = 'charge:select', idKey = 'code' },
-                },
-            } }
+            navigation[#navigation + 1] = { id = 'charges', label = 'Charges', icon = 'scale',
+                content = chargeManagementContent(QB.callback.trigger('qbmdt:server:manageCharges') or {}) }
         end
     end
 
@@ -518,39 +518,13 @@ local function openTerminal(role, policeBoss)
             elseif selectedId == 'charge:refresh' and policeBoss then
                 local rows, err = QB.callback.trigger('qbmdt:server:manageCharges')
                 if not rows then return message(false, nil, err) end
-                return update('charges', { title = 'Charge management', description = 'Create charges for the criminal record and report tools.', blocks = {
-                    { type = 'actions', actions = {
-                        action('charge:create', 'Create charge', 'plus', {
-                            { id = 'code', label = 'Charge code', type = 'text', required = true, maxLength = 32 },
-                            { id = 'label', label = 'Charge name', type = 'text', required = true, maxLength = 128 },
-                            { id = 'fine', label = 'Fine', type = 'number', required = true, min = 0, max = 2000000000 },
-                        }, 'primary'), action('charge:refresh', 'Refresh charges', 'refresh-cw'),
-                    } },
-                    { type = 'table', id = 'managed-charges', searchable = true, pageSize = 12,
-                        columns = { { key = 'label', label = 'Charge', sortable = true }, { key = 'fine', label = 'Fine', align = 'right', sortable = true },
-                        { key = 'active', label = 'Active', sortable = true } }, rows = rows, empty = 'No charges configured.',
-                        action = 'charge:select', idKey = 'code' },
-                } })
+                return update('charges', chargeManagementContent(rows))
             elseif selectedId == 'charge:create' and policeBoss then
                 local ok, err = QB.callback.trigger('qbmdt:server:createCharge', input)
                 if not ok then return message(false, nil, err) end
-                local rows = QB.callback.trigger('qbmdt:server:charges') or {}
-                for i = #chargeOptions, 1, -1 do chargeOptions[i] = nil end
-                for _, charge in ipairs(rows) do chargeOptions[#chargeOptions + 1] = { value = charge.label, label = charge.label } end
+                setChargeOptions(QB.callback.trigger('qbmdt:server:charges') or {})
                 local managed = QB.callback.trigger('qbmdt:server:manageCharges') or {}
-                return update('charges', { title = 'Charge management', description = 'Create charges for the criminal record and report tools.', blocks = {
-                    { type = 'actions', actions = {
-                        action('charge:create', 'Create charge', 'plus', {
-                            { id = 'code', label = 'Charge code', type = 'text', required = true, maxLength = 32 },
-                            { id = 'label', label = 'Charge name', type = 'text', required = true, maxLength = 128 },
-                            { id = 'fine', label = 'Fine', type = 'number', required = true, min = 0, max = 2000000000 },
-                        }, 'primary'), action('charge:refresh', 'Refresh charges', 'refresh-cw'),
-                    } },
-                    { type = 'table', id = 'managed-charges', searchable = true, pageSize = 12,
-                        columns = { { key = 'label', label = 'Charge', sortable = true }, { key = 'fine', label = 'Fine', align = 'right', sortable = true },
-                        { key = 'active', label = 'Active', sortable = true } }, rows = managed, empty = 'No charges configured.',
-                        action = 'charge:select', idKey = 'code' },
-                } }, { tone = 'success', message = 'Charge created.' })
+                return update('charges', chargeManagementContent(managed), { tone = 'success', message = 'Charge created.' })
             elseif selectedId == 'charge:select' and policeBoss and itemId then
                 local rows = QB.callback.trigger('qbmdt:server:manageCharges') or {}
                 for _, charge in ipairs(rows) do
@@ -561,9 +535,7 @@ local function openTerminal(role, policeBoss)
             elseif selectedId == 'charge:edit' and policeBoss and selectedCharge then
                 local ok, err = QB.callback.trigger('qbmdt:server:updateCharge', selectedCharge.code, input.label, input.fine)
                 if not ok then return message(false, nil, err) end
-                local activeCharges = QB.callback.trigger('qbmdt:server:charges') or {}
-                for i = #chargeOptions, 1, -1 do chargeOptions[i] = nil end
-                for _, charge in ipairs(activeCharges) do chargeOptions[#chargeOptions + 1] = { value = charge.label, label = charge.label } end
+                setChargeOptions(QB.callback.trigger('qbmdt:server:charges') or {})
                 for _, charge in ipairs(QB.callback.trigger('qbmdt:server:manageCharges') or {}) do
                     if tostring(charge.code) == tostring(selectedCharge.code) then selectedCharge = charge; break end
                 end
