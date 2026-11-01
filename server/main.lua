@@ -795,13 +795,13 @@ QB.events.register('qbmdt:server:beginAnalysis', function(src, caseId)
 
     local authorization = authorizeAnalysisStage(src, 1)
     if not authorization then return end
-    analysis[src] = {
+    local state = {
         caseId = caseId,
         stage = 1,
         authorization = authorization,
         expiresAt = GetGameTimer() + C.analysis.ttl,
     }
-    local state = analysis[src]
+    analysis[src] = state
     SetTimeout(C.analysis.ttl + 1, function()
         if analysis[src] == state then analysis[src] = nil end
     end)
@@ -858,7 +858,7 @@ local function finishTraining(src, state, passed, silent)
 
     passed = passed == true and issueWeaponLicence(src, state)
     if training[src] == state then training[src] = nil end
-    if not silent then TriggerClientEvent('qbmdt:client:weaponLicenceResult', src, passed == true, state.shots) end
+    if not silent then TriggerClientEvent('qbmdt:client:weaponLicenceResult', src, passed, state.shots) end
 end
 
 local function stillEligible(src, state)
@@ -892,12 +892,11 @@ QB.events.register('qbmdt:server:startWeaponLicence', function(src)
         return QB.notify.send(src, { title = 'Weapon licence', message = 'You already hold a weapon licence.', type = 'error' })
     end
 
-    local current = GetGameTimer()
     local state = {
         citizenid = cid,
         shots = 0,
         bucket = bucket,
-        expiresAt = current + C.weaponLicence.trainingTimeout,
+        expiresAt = GetGameTimer() + C.weaponLicence.trainingTimeout,
     }
     local started, startErr = exports.kora_inventory:StartTrainingWeapon(src, C.weaponLicence.weapon, C.weaponLicence.shots)
     if not started then
