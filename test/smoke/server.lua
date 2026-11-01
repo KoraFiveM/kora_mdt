@@ -166,6 +166,41 @@ h.test('every list returns readable time strings, never tables', function()
     h.assertEqual(type(rows[3].updated_at), 'string')
 end)
 
+h.test('person BOLOs accept citizen ID, unique name, or free text and report clear errors', function()
+    resetObservations()
+    handle.ensurePlayer(96)
+    readyMdt()
+    handle.sqlSingle = function(query, params)
+        if query:find('FROM `players`', 1, true) and params[1] == 'ABC12345' then return { citizenid = 'ABC12345' } end
+    end
+    local names = { ['jane doe'] = { { citizenid = 'ABC12345' } }, twin = { { citizenid = 'A' }, { citizenid = 'B' } } }
+    handle.sqlQuery = function(query, params)
+        if query:find('LOWER(`name`)', 1, true) then return names[params[1]:lower()] or {} end
+        return {}
+    end
+    local create = QB.callback.registry['qbmdt:server:createBolo']
+    local function make(identifier)
+        return create(96, { subject_type = 'person', identifier = identifier, title = 'Wanted', description = 'Detain.', days = 1 })
+    end
+    local function subject() return handle.sqlInserts[#handle.sqlInserts - 1].params[2] end
+    h.assertTrue(make('ABC12345') ~= nil)
+    h.assertEqual(subject(), 'ABC12345')
+    h.assertTrue(make('Jane Doe') ~= nil)
+    h.assertEqual(subject(), 'ABC12345')
+    h.assertTrue(make('RaVn') ~= nil)
+    h.assertEqual(subject(), 'RaVn')
+    local id, err = make('twin')
+    h.assertEqual(id, nil)
+    h.assertTrue(err:find('citizen ID', 1, true) ~= nil)
+    Config.mdt.bolo.allowUnknownPersonSubject = false
+    id, err = make('Nobody Here')
+    Config.mdt.bolo.allowUnknownPersonSubject = true
+    h.assertEqual(id, nil)
+    h.assertTrue(err:find('No citizen matches', 1, true) ~= nil)
+    id, err = create(96, { subject_type = 'person', identifier = '', title = 'x', description = 'y' })
+    h.assertEqual(err, 'Enter a citizen ID or name for the subject.')
+end)
+
 h.test('warrant and BOLO state changes use server-owned transitions and audit', function()
     resetObservations()
     handle.ensurePlayer(95)

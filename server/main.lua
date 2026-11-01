@@ -590,13 +590,33 @@ QB.callback.register('qbmdt:server:createBolo', function(src, input)
     local title = cleanText(input.title, 160, true)
     local description = cleanText(input.description, 1500, true)
     local days = math.max(1, math.min(C.operations.boloMaxDays, math.floor(tonumber(input.days) or C.operations.boloDefaultDays)))
-    if not kind or not identifier or not title or not description then return nil, 'all BOLO fields are required' end
-    if kind == 'person' and not personExists(cleanCid(identifier)) then return nil, 'citizen not found' end
-    if kind == 'vehicle' then identifier = identifier:upper() end
+    if not kind then return nil, 'Choose a valid subject type (person or vehicle).' end
+    if not identifier then return nil, kind == 'vehicle' and 'Enter the vehicle plate.' or 'Enter a citizen ID or name for the subject.' end
+    if not title then return nil, 'Enter an alert title.' end
+    if not description then return nil, 'Enter a description and instructions.' end
+    if kind == 'person' then
+        local rules = C.bolo or {}
+        local cid = cleanCid(identifier)
+        if cid and personExists(cid) then
+            identifier = cid
+        else
+            local matches = rules.resolvePersonByName ~= false and QB.sql.query(
+                'SELECT `citizenid` FROM `players` WHERE `deleted_at` IS NULL AND LOWER(`name`) = LOWER(?) LIMIT 2', { identifier }) or {}
+            if #matches == 1 then
+                identifier = matches[1].citizenid
+            elseif #matches > 1 then
+                return nil, ('More than one citizen is named "%s". Use the citizen ID instead.'):format(identifier)
+            elseif rules.allowUnknownPersonSubject == false then
+                return nil, ('No citizen matches "%s". Enter a valid citizen ID or full name.'):format(identifier)
+            end
+        end
+    elseif kind == 'vehicle' then
+        identifier = identifier:upper()
+    end
     local id, err = QB.sql.insert([[INSERT INTO `qbmdt_bolos`
         (`subject_type`,`subject_identifier`,`title`,`description`,`author_citizenid`,`expires_at`)
         VALUES (?,?,?,?,?,DATE_ADD(NOW(), INTERVAL ? DAY))]], { kind, identifier, title, description, citizenId(src), days })
-    if not id then return nil, err or 'database error' end
+    if not id then return nil, err or 'The BOLO could not be saved. Try again.' end
     audit(src, 'bolo.create', 'bolo', id, identifier)
     return id
 end)

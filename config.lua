@@ -76,6 +76,10 @@ Config.mdt = {
         requireSubject = false,         -- true = incident reports must name an existing subject citizen ID
         requireCharge = false,          -- true = incident reports must carry a charge from the charge list
     },
+    bolo = {
+        resolvePersonByName = true,       -- true = a Person subject that is not a citizen ID is matched to a citizen by exact full name (a unique match is stored as that citizen ID)
+        allowUnknownPersonSubject = true, -- true = a Person subject that matches no citizen is stored as free text (name/description); false = reject it with an error
+    },
     charges = {
         { code = 'SPD-01', label = 'Speeding', fine = 250 },
         { code = 'WPN-01', label = 'Unlawful discharge of a firearm', fine = 1500 },
@@ -146,6 +150,8 @@ if QB and QB.config and QB.config.adopt then
         ['mdt.dateFormat'] = 'Sets how every MDT date and time is displayed. Use the tokens YYYY, MM, DD, HH, mm and ss, for example DD/MM/YYYY HH:mm. Times are shown in the database server time zone.',
         ['mdt.reports.requireSubject'] = 'When enabled the server rejects incident reports that do not name an existing subject citizen ID. Leave it off to allow reports with no suspect.',
         ['mdt.reports.requireCharge'] = 'When enabled the server rejects incident reports without a charge from the charge catalogue. A charge that is entered is always validated against the catalogue.',
+        ['mdt.bolo.resolvePersonByName'] = 'When enabled, a Person BOLO subject that is not a known citizen ID is looked up by exact, case-insensitive full name. A single match is stored as that citizen ID; several matches are rejected so the officer can use the citizen ID.',
+        ['mdt.bolo.allowUnknownPersonSubject'] = 'When enabled, a Person BOLO subject that matches no citizen ID or name is stored as free text (for example a name or description). When disabled the BOLO is rejected with a clear message.',
         ['mdt.charges'] = 'Defines the charge catalogue seeded into the MDT database when it becomes ready. Each numbered row needs a unique code, display label, and non-negative fine; existing database rows with the same code are left intact.',
     } })
 end

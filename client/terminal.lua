@@ -302,7 +302,7 @@ local function openTerminal(role, policeBoss)
                     { id = 'subject_type', label = 'Subject type', type = 'select', required = true, default = 'person', options = {
                         { value = 'person', label = 'Person' }, { value = 'vehicle', label = 'Vehicle' },
                     } },
-                    { id = 'identifier', label = 'Citizen ID or plate', type = 'text', required = true, maxLength = 96 },
+                    { id = 'identifier', label = 'Citizen ID, name or plate', type = 'text', required = true, maxLength = 96 },
                     { id = 'title', label = 'Alert title', type = 'text', required = true, maxLength = 160 },
                     { id = 'description', label = 'Description and instructions', type = 'textarea', required = true, maxLength = 1500 },
                     { id = 'days', label = 'Valid for days', type = 'number', required = true, default = C.operations.boloDefaultDays, min = 1, max = C.operations.boloMaxDays },
@@ -631,7 +631,7 @@ local function openTerminal(role, policeBoss)
                 local ok, err = refreshBolos(); return ok and update('bolos') or message(false, nil, err)
             elseif selectedId == 'bolo:create' and policeAccess then
                 local id, err = QB.callback.trigger('qbmdt:server:createBolo', input)
-                if not id then return message(false, nil, err) end
+                if not id then return message(false, nil, err or 'The BOLO could not be created. Check every field and try again.') end
                 refreshBolos(); refreshDashboard()
                 return update('bolos', nil, { tone = 'success', message = ('BOLO #%s created.'):format(id) })
             elseif selectedId == 'bolo:select' and itemId and policeAccess then
