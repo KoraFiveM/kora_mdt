@@ -25,7 +25,7 @@ local function isInsideWeaponLicenceZone(coords)
 end
 
 local function form(title, fields)
-    local result = QB.nui.openInputDialog(fields, title)
+    local result = Kora.nui.openInputDialog(fields, title)
     if not result or result.cancelled then return nil end
     return result.values
 end
