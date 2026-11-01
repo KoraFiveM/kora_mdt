@@ -15,6 +15,7 @@ local hooks, licenceRegistrations, clerkRegistrations, clerkSpawns, nextTargetId
 local recordsClerk, recordsDistance
 local targetState = 'started'
 local registeredApp, openedApp
+local serverData = {}
 local entityFactory = function() return 900 end
 local minigameResult = { success = false }
 
@@ -34,6 +35,8 @@ _G.QB = {
     },
     notify = { send = function() end },
     callback = { trigger = function(name)
+        local scripted = serverData[name]
+        if scripted then return scripted.value, scripted.err end
         if name == 'qbmdt:server:dashboard' then return { recent = {} } end
         if name == 'qbmdt:server:reports' or name == 'qbmdt:server:cases'
             or name == 'qbmdt:server:warrants' or name == 'qbmdt:server:bolos' then return {} end
@@ -305,6 +308,136 @@ h.test('successful qualification submits only its proof', function()
     h.assertEqual(serverEvents[1].name, 'qbmdt:server:completeWeaponLicence')
     h.assertEqual(serverEvents[1].args[1], 'proof-1')
     h.assertEqual(serverEvents[1].args[2], nil)
+end)
+
+local function viewOf(navigation, id)
+    for _, view in ipairs(navigation) do if view.id == id then return view end end
+end
+
+local function openPolice()
+    reset()
+    serverData = {}
+    handlers['qbmdt:client:open']('police')
+    local byId = {}
+    for _, view in ipairs(registeredApp.navigation) do byId[view.id] = view end
+    return byId
+end
+
+local function reportRow(id, title, subject)
+    return { id = id, title = title, status = 'open', subject_name = subject, charge_label = 'Speeding', updated_at = '2026-10-31 22:05' }
+end
+
+h.test('report subject field asks for a citizen ID or a name', function()
+    local byId = openPolice()
+    local create = byId.reports.content.blocks[1].actions[1]
+    local label
+    for _, field in ipairs(create.fields) do if field.id == 'citizenid' then label = field.label end end
+    h.assertTrue(label:find('citizen ID or name', 1, true) ~= nil, label)
+end)
+
+h.test('a new report appears in the reports list, dashboard timeline and open count in the same response', function()
+    openPolice()
+    local rows = { reportRow(1, 'Older', 'Jane Doe') }
+    serverData['qbmdt:server:reports'] = { value = rows }
+    serverData['qbmdt:server:dashboard'] = { value = { open_reports = 1, recent = { rows[1] } } }
+    handlers['qbmdt:client:open']('police')
+    local table0 = viewOf(registeredApp.navigation, 'reports').content.blocks[2]
+    h.assertEqual(#table0.rows, 1)
+
+    rows = { reportRow(5, 'Fresh', 'Joe Jones'), reportRow(1, 'Older', 'Jane Doe') }
+    serverData['qbmdt:server:reports'] = { value = rows }
+    serverData['qbmdt:server:dashboard'] = { value = { open_reports = 2, recent = rows } }
+    serverData['qbmdt:server:createReport'] = { value = 5 }
+    local result = registeredApp.onAction('report:create', { value = { title = 'Fresh', narrative = 'n' } })
+    h.assertEqual(result.notice.tone, 'success')
+    h.assertEqual(result.notice.message, 'Incident report #5 created.')
+    h.assertEqual(result.navigate.viewId, 'reports')
+    local byId = {}
+    for _, view in ipairs(result.update.navigation) do byId[view.id] = view end
+    local list = byId.reports.content.blocks[2]
+    h.assertEqual(#list.rows, 2)
+    h.assertEqual(list.rows[1].id, '5')
+    h.assertEqual(list.rows[1].updated, '2026-10-31 22:05')
+    local dash = byId.dashboard.content.blocks
+    h.assertEqual(dash[1].items[1].value, 2, 'Open reports count')
+    h.assertEqual(#dash[2].items, 2)
+    h.assertEqual(dash[2].items[1].timestamp, '2026-10-31 22:05')
+    h.assertEqual(type(dash[2].items[1].timestamp), 'string')
+end)
+
+h.test('closing a report refreshes the list and dashboard', function()
+    openPolice()
+    serverData['qbmdt:server:report'] = { value = { id = 5, title = 'Fresh', status = 'open' } }
+    registeredApp.onAction('report:select', { itemId = '5' })
+    serverData['qbmdt:server:closeReport'] = { value = true }
+    local closed = reportRow(5, 'Fresh', 'Joe Jones'); closed.status = 'closed'
+    serverData['qbmdt:server:reports'] = { value = { closed } }
+    serverData['qbmdt:server:dashboard'] = { value = { open_reports = 0, recent = { closed } } }
+    local result = registeredApp.onAction('report:close', {})
+    h.assertEqual(result.notice.message, 'Report closed.')
+    local byId = {}
+    for _, view in ipairs(result.update.navigation) do byId[view.id] = view end
+    h.assertEqual(byId.reports.content.blocks[2].rows[1].status.label, 'closed')
+    h.assertEqual(byId.dashboard.content.blocks[1].items[1].value, 0)
+end)
+
+h.test('a failing reports query shows its error instead of "No reports found."', function()
+    openPolice()
+    serverData['qbmdt:server:reports'] = { err = 'Could not load reports: Illegal mix of collations' }
+    handlers['qbmdt:client:open']('police')
+    local block = viewOf(registeredApp.navigation, 'reports').content.blocks[2]
+    h.assertEqual(block.type, 'empty')
+    h.assertTrue(block.description:find('Illegal mix of collations', 1, true) ~= nil)
+    local result = registeredApp.onAction('report:refresh', {})
+    h.assertEqual(result.notice.tone, 'destructive')
+    h.assertTrue(result.notice.message:find('Illegal mix of collations', 1, true) ~= nil)
+
+    serverData['qbmdt:server:reports'] = { value = { reportRow(1, 'Older', 'Jane Doe') } }
+    result = registeredApp.onAction('report:refresh', {})
+    h.assertEqual(result.notice.message, 'Reports refreshed.')
+    h.assertEqual(viewOf(result.update.navigation, 'reports').content.blocks[2].type, 'table')
+    h.assertEqual(#viewOf(result.update.navigation, 'reports').content.blocks[2].rows, 1)
+end)
+
+h.test('warrant, BOLO and case creation refresh their lists and the dashboard', function()
+    openPolice()
+    local function ids(result)
+        local byId = {}
+        for _, view in ipairs(result.update.navigation) do byId[view.id] = view end
+        return byId
+    end
+    serverData['qbmdt:server:createWarrant'] = { value = 3 }
+    serverData['qbmdt:server:warrants'] = { value = { { id = 3, citizenid = 'ABC', status = 'active', reason = 'r', expires_at = '2026-11-02 10:00' } } }
+    serverData['qbmdt:server:dashboard'] = { value = { active_warrants = 1, recent = {} } }
+    local result = registeredApp.onAction('warrant:create', { value = {} })
+    h.assertEqual(ids(result).warrants.content.blocks[2].rows[1].expires, '2026-11-02 10:00')
+    h.assertEqual(ids(result).dashboard.content.blocks[1].items[3].value, 1)
+    serverData['qbmdt:server:createBolo'] = { value = 4 }
+    serverData['qbmdt:server:bolos'] = { value = { { id = 4, subject_type = 'person', subject_label = 'Jane Doe (ABC)', title = 't', status = 'active', expires_at = '2026-11-02 10:00' } } }
+    result = registeredApp.onAction('bolo:create', { value = {} })
+    h.assertEqual(ids(result).bolos.content.blocks[2].rows[1].subject, 'Jane Doe (ABC)')
+    serverData['qbmdt:server:cases'] = { value = {} }
+    serverData['qbmdt:server:createCase'] = { value = 9 }
+    serverData['qbmdt:server:cases'] = { value = { { id = 9, title = 'c', priority = 'normal', status = 'open', updated_at = '2026-11-01 10:00' } } }
+    result = registeredApp.onAction('case:create', { value = {} })
+    h.assertEqual(ids(result).cases.content.blocks[2].rows[1].id, '9')
+end)
+
+h.test('a refresh failure after a successful create is reported, not hidden', function()
+    openPolice()
+    serverData['qbmdt:server:createReport'] = { value = 6 }
+    serverData['qbmdt:server:reports'] = { err = 'Could not load reports: boom' }
+    local result = registeredApp.onAction('report:create', { value = {} })
+    h.assertEqual(result.notice.tone, 'warning')
+    h.assertTrue(result.notice.message:find('#6 created', 1, true) ~= nil)
+    h.assertTrue(result.notice.message:find('boom', 1, true) ~= nil)
+end)
+
+h.test('a table or number time is never stringified into the NUI', function()
+    openPolice()
+    serverData['qbmdt:server:reports'] = { value = { { id = 1, title = 't', status = 'open', updated_at = { year = 2026 } } } }
+    local result = registeredApp.onAction('report:refresh', {})
+    h.assertEqual(viewOf(result.update.navigation, 'reports').content.blocks[2].rows[1].updated, '—')
 end)
 
 h.report('qbmdt client')

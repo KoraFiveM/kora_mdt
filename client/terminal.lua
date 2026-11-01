@@ -351,8 +351,36 @@ local function openTerminal(role, policeBoss)
     end
     navigation[#navigation + 1] = resultView
 
+    -- A list that cannot load says why (and logs it) instead of showing an empty table.
+    local function listFailed(viewId, slot, what, err)
+        err = tostring(err or 'no response from the server')
+        print(('^1[kora_mdt]^7 could not load %s: %s'):format(what, err))
+        local view = findView(viewId)
+        local blocks = view and view.content and view.content.blocks
+        if blocks and (blocks[slot] == nil or blocks[slot].type == 'empty') then
+            blocks[slot] = { type = 'empty', title = ('Could not load %s'):format(what), description = err, icon = 'alert-triangle' }
+        end
+        return nil, err
+    end
+    -- Runs every refresher (all of them, even after a failure); returns the first failure reason.
+    local function refreshAll(...)
+        local failure
+        for _, refresh in ipairs({ ... }) do
+            local ok, err = refresh()
+            if not ok and not failure then failure = err or 'unknown error' end
+        end
+        return failure
+    end
+    local function savedNotice(success, failure)
+        if failure then
+            return { tone = 'warning', message = ('%s The list could not be refreshed: %s'):format(success, failure) }
+        end
+        return { tone = 'success', message = success }
+    end
+
     local function refreshDashboard()
-        local data = QB.callback.trigger('qbmdt:server:dashboard') or {}
+        local data, dashboardErr = QB.callback.trigger('qbmdt:server:dashboard')
+        if not data then return listFailed('dashboard', 1, 'the dashboard', dashboardErr) end
         local recent = {}
         for _, row in ipairs(data.recent or {}) do recent[#recent + 1] = {
             id = tostring(row.id), title = ('Report #%s · %s'):format(row.id, row.title),
@@ -367,17 +395,20 @@ local function openTerminal(role, policeBoss)
                 { label = 'Active BOLOs', value = tonumber(data.active_bolos) or 0, icon = 'siren', tone = 'destructive' },
             } }, { type = 'timeline', title = 'Recent reports', items = recent, empty = 'No incident reports have been filed.' },
         } }
+        return true
     end
 
     local function refreshReports()
         local rows, err = QB.callback.trigger('qbmdt:server:reports')
-        if not rows then return nil, err end
-        local optionRows = QB.callback.trigger('qbmdt:server:reportOptions') or {}
-        for index = #reportOptions, 1, -1 do reportOptions[index] = nil end
-        for _, row in ipairs(optionRows) do
-            reportOptions[#reportOptions + 1] = {
-                value = tostring(row.id), label = ('%s - %s'):format(row.title or 'Untitled', row.subject or 'Unknown'),
-            }
+        if not rows then return listFailed('reports', 2, 'reports', err) end
+        local optionRows = QB.callback.trigger('qbmdt:server:reportOptions')
+        if optionRows then
+            for index = #reportOptions, 1, -1 do reportOptions[index] = nil end
+            for _, row in ipairs(optionRows) do
+                reportOptions[#reportOptions + 1] = {
+                    value = tostring(row.id), label = ('%s - %s'):format(row.title or 'Untitled', row.subject or 'Unknown'),
+                }
+            end
         end
         local output = {}
         for _, row in ipairs(rows) do output[#output + 1] = {
@@ -395,7 +426,7 @@ local function openTerminal(role, policeBoss)
 
     local function refreshCases()
         local rows, err = QB.callback.trigger('qbmdt:server:cases')
-        if not rows then return nil, err end
+        if not rows then return listFailed('cases', 2, 'cases', err) end
         for index = #caseOptions, 1, -1 do caseOptions[index] = nil end
         local output = {}
         for _, row in ipairs(rows) do
@@ -413,7 +444,7 @@ local function openTerminal(role, policeBoss)
 
     local function refreshWarrants()
         local rows, err = QB.callback.trigger('qbmdt:server:warrants')
-        if not rows then return nil, err end
+        if not rows then return listFailed('warrants', 2, 'warrants', err) end
         local output = {}
         for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), status = statusCell(row.status),
             subject = row.subject_name or row.citizenid, citizenid = row.citizenid, reason = row.reason, expires = when(row.expires_at, '—') } end
@@ -426,7 +457,7 @@ local function openTerminal(role, policeBoss)
 
     local function refreshBolos()
         local rows, err = QB.callback.trigger('qbmdt:server:bolos')
-        if not rows then return nil, err end
+        if not rows then return listFailed('bolos', 2, 'BOLOs', err) end
         local output = {}
         for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), status = statusCell(row.status),
             kind = tostring(row.subject_type or ''), subject = tostring(row.subject_label or row.subject_identifier or ''), title = tostring(row.title or ''),
@@ -440,11 +471,7 @@ local function openTerminal(role, policeBoss)
     end
 
     if policeAccess then
-        refreshDashboard()
-        refreshReports()
-        refreshCases()
-        refreshWarrants()
-        refreshBolos()
+        refreshAll(refreshDashboard, refreshReports, refreshCases, refreshWarrants, refreshBolos)
     end
 
     Kora.nui.registerApp({
@@ -550,15 +577,14 @@ local function openTerminal(role, policeBoss)
                         { label = 'Purchased', value = when(row.purchased_at, '—') } },
                 } } })
             elseif selectedId == 'report:refresh' and policeAccess then
-                local ok, err = refreshReports(); return ok and update('reports') or message(false, nil, err)
+                local failure = refreshAll(refreshReports, refreshDashboard)
+                if failure then return message(false, nil, 'Could not refresh reports: ' .. failure) end
+                return update('reports', nil, { tone = 'success', message = 'Reports refreshed.' })
             elseif selectedId == 'report:create' and policeAccess then
                 local id, err = QB.callback.trigger('qbmdt:server:createReport', input)
                 if not id then return message(false, nil, err) end
-                local listed, listErr = refreshReports(); refreshDashboard()
-                if not listed then
-                    return update('reports', nil, { tone = 'warning', message = ('Incident report #%s created, but the list could not be refreshed: %s'):format(id, tostring(listErr or 'unknown error')) })
-                end
-                return update('reports', nil, { tone = 'success', message = ('Incident report #%s created.'):format(id) })
+                local failure = refreshAll(refreshReports, refreshDashboard)
+                return update('reports', nil, savedNotice(('Incident report #%s created.'):format(id), failure))
             elseif (selectedId == 'report:select' or selectedId == 'report:open-linked') and itemId and policeAccess then
                 local row, err = QB.callback.trigger('qbmdt:server:report', itemId)
                 if not row then return message(false, nil, err or 'Report not found.') end
@@ -566,22 +592,24 @@ local function openTerminal(role, policeBoss)
                 return showReport(row)
             elseif selectedId == 'report:close' and selectedReport and policeAccess then
                 local ok, err = QB.callback.trigger('qbmdt:server:closeReport', selectedReport.id)
-                if ok then selectedReport.status = 'closed'; refreshReports(); refreshDashboard() end
-                return ok and update('reports', nil, { tone = 'success', message = 'Report closed.' }) or message(false, nil, err)
+                if not ok then return message(false, nil, err) end
+                selectedReport.status = 'closed'
+                return update('reports', nil, savedNotice('Report closed.', refreshAll(refreshReports, refreshDashboard)))
             elseif selectedId == 'case:refresh' and policeAccess then
-                local ok, err = refreshCases(); return ok and update('cases') or message(false, nil, err)
+                local failure = refreshAll(refreshCases, refreshDashboard)
+                if failure then return message(false, nil, 'Could not refresh cases: ' .. failure) end
+                return update('cases', nil, { tone = 'success', message = 'Cases refreshed.' })
             elseif selectedId == 'case:attach-report' and policeAccess then
                 local ok, err = QB.callback.trigger('qbmdt:server:linkCaseReport', input.case_id, input.report_id)
                 if not ok then return message(false, nil, err) end
-                refreshCases()
-                return update('cases', nil, { tone = 'success', message = 'Report attached to case.' })
+                return update('cases', nil, savedNotice('Report attached to case.', refreshAll(refreshCases)))
             elseif selectedId == 'case:create' and policeAccess then
                 local id, err = QB.callback.trigger('qbmdt:server:createCase', input)
                 if not id then return message(false, nil, err) end
-                refreshCases(); refreshDashboard()
+                local failure = refreshAll(refreshCases, refreshDashboard)
                 local row = QB.callback.trigger('qbmdt:server:case', id)
-                if row then selectedCase = row; return showResult(caseContent(row), { tone = 'success', message = ('Case #%s opened. Add reports with + Add report.'):format(id) }) end
-                return update('cases', nil, { tone = 'success', message = ('Case #%s opened.'):format(id) })
+                if row then selectedCase = row; return showResult(caseContent(row), savedNotice(('Case #%s opened. Add reports with + Add report.'):format(id), failure)) end
+                return update('cases', nil, savedNotice(('Case #%s opened.'):format(id), failure))
             elseif selectedId == 'case:select' and itemId and policeAccess then
                 local row, err = QB.callback.trigger('qbmdt:server:case', itemId)
                 if not row then return message(false, nil, err or 'Case not found.') end
@@ -590,25 +618,28 @@ local function openTerminal(role, policeBoss)
             elseif selectedId == 'case:link-report' and selectedCase and policeAccess then
                 local ok, err = QB.callback.trigger('qbmdt:server:linkCaseReport', selectedCase.id, input.report_id)
                 if ok then
-                    refreshCases()
+                    local failure = refreshAll(refreshCases)
                     local row = QB.callback.trigger('qbmdt:server:case', selectedCase.id)
-                    if row then selectedCase = row; return showResult(caseContent(row), { tone = 'success', message = 'Report added. Use + Add report to attach another.' }) end
-                    return update('cases', nil, { tone = 'success', message = 'Report linked to case.' })
+                    if row then selectedCase = row; return showResult(caseContent(row), savedNotice('Report added. Use + Add report to attach another.', failure)) end
+                    return update('cases', nil, savedNotice('Report linked to case.', failure))
                 end
                 return message(false, nil, err)
             elseif (selectedId == 'case:investigate' or selectedId == 'case:close' or selectedId == 'case:reopen') and selectedCase and policeAccess then
                 local state = selectedId == 'case:investigate' and 'investigating' or selectedId == 'case:close' and 'closed' or 'open'
                 local ok, err = QB.callback.trigger('qbmdt:server:updateCaseStatus', selectedCase.id, state)
-                if ok then selectedCase.status = state; refreshCases(); refreshDashboard() end
-                return ok and update('cases', nil, { tone = 'success', message = 'Case marked ' .. state .. '.' }) or message(false, nil, err)
+                if not ok then return message(false, nil, err) end
+                selectedCase.status = state
+                return update('cases', nil, savedNotice('Case marked ' .. state .. '.', refreshAll(refreshCases, refreshDashboard)))
             elseif selectedId == 'warrant:refresh' and policeAccess then
-                local ok, err = refreshWarrants(); return ok and update('warrants') or message(false, nil, err)
+                local failure = refreshAll(refreshWarrants, refreshDashboard)
+                if failure then return message(false, nil, 'Could not refresh warrants: ' .. failure) end
+                return update('warrants', nil, { tone = 'success', message = 'Warrants refreshed.' })
             elseif selectedId == 'warrant:create' and policeAccess then
                 local id, err = QB.callback.trigger('qbmdt:server:createWarrant', input)
                 if not id then return message(false, nil, err) end
-                refreshWarrants(); refreshDashboard()
-                return update('warrants', nil, { tone = 'success', message = ('Warrant #%s issued.'):format(id) })
+                return update('warrants', nil, savedNotice(('Warrant #%s issued.'):format(id), refreshAll(refreshWarrants, refreshDashboard)))
             elseif selectedId == 'warrant:select' and itemId and policeAccess then
+                selectedWarrant = nil
                 for _, row in ipairs(QB.callback.trigger('qbmdt:server:warrants') or {}) do if tostring(row.id) == tostring(itemId) then selectedWarrant = row; break end end
                 if not selectedWarrant then return message(false, nil, 'Warrant not found.') end
                 local actions = {}
@@ -625,16 +656,19 @@ local function openTerminal(role, policeBoss)
             elseif (selectedId == 'warrant:serve' or selectedId == 'warrant:revoke') and selectedWarrant and policeAccess then
                 local state = selectedId == 'warrant:serve' and 'served' or 'revoked'
                 local ok, err = QB.callback.trigger('qbmdt:server:closeWarrant', selectedWarrant.id, state)
-                if ok then selectedWarrant.status = state; refreshWarrants(); refreshDashboard() end
-                return ok and update('warrants', nil, { tone = 'success', message = 'Warrant marked ' .. state .. '.' }) or message(false, nil, err)
+                if not ok then return message(false, nil, err) end
+                selectedWarrant.status = state
+                return update('warrants', nil, savedNotice('Warrant marked ' .. state .. '.', refreshAll(refreshWarrants, refreshDashboard)))
             elseif selectedId == 'bolo:refresh' and policeAccess then
-                local ok, err = refreshBolos(); return ok and update('bolos') or message(false, nil, err)
+                local failure = refreshAll(refreshBolos, refreshDashboard)
+                if failure then return message(false, nil, 'Could not refresh BOLOs: ' .. failure) end
+                return update('bolos', nil, { tone = 'success', message = 'BOLOs refreshed.' })
             elseif selectedId == 'bolo:create' and policeAccess then
                 local id, err = QB.callback.trigger('qbmdt:server:createBolo', input)
                 if not id then return message(false, nil, err or 'The BOLO could not be created. Check every field and try again.') end
-                refreshBolos(); refreshDashboard()
-                return update('bolos', nil, { tone = 'success', message = ('BOLO #%s created.'):format(id) })
+                return update('bolos', nil, savedNotice(('BOLO #%s created.'):format(id), refreshAll(refreshBolos, refreshDashboard)))
             elseif selectedId == 'bolo:select' and itemId and policeAccess then
+                selectedBolo = nil
                 for _, row in ipairs(QB.callback.trigger('qbmdt:server:bolos') or {}) do if tostring(row.id) == tostring(itemId) then selectedBolo = row; break end end
                 if not selectedBolo then return message(false, nil, 'BOLO not found.') end
                 local actions = selectedBolo.status == 'active' and { { id = 'bolo:resolve', label = 'Resolve BOLO', icon = 'check-circle', variant = 'primary', confirm = 'Resolve this BOLO?' } } or {}
@@ -646,8 +680,9 @@ local function openTerminal(role, policeBoss)
                 } } })
             elseif selectedId == 'bolo:resolve' and selectedBolo and policeAccess then
                 local ok, err = QB.callback.trigger('qbmdt:server:resolveBolo', selectedBolo.id)
-                if ok then selectedBolo.status = 'resolved'; refreshBolos(); refreshDashboard() end
-                return ok and update('bolos', nil, { tone = 'success', message = 'BOLO resolved.' }) or message(false, nil, err)
+                if not ok then return message(false, nil, err) end
+                selectedBolo.status = 'resolved'
+                return update('bolos', nil, savedNotice('BOLO resolved.', refreshAll(refreshBolos, refreshDashboard)))
             elseif selectedId == 'criminal:create' and criminalAccess then
                 local ok, err = QB.callback.trigger('qbmdt:server:addCriminal', input.citizenid, input.charge, input.notes)
                 return message(ok, 'Criminal record saved.', err)

@@ -617,4 +617,150 @@ h.test('analysis cancel, TTL cleanup, and stale timers permit safe retries', fun
     h.assertEqual(#handle.eventsNamed('qbmdt:client:analysisStage', 90), startsBefore + 2, 'drop cleanup must permit retry')
 end)
 
+h.test('formatTime handles number seconds and ms, strings, tables, nil and custom formats on every time key', function()
+    resetObservations()
+    handle.ensurePlayer(94)
+    local saved = Config.mdt.dateFormat
+    handle.sqlQuery = function() return { {
+        id = 1, updated_at = 1793484969, created_at = 1793484969000, expires_at = '2026-10-31T22:16:09Z',
+        closed_at = { year = 2026, month = 1, day = 2, hour = 3, min = 4, sec = 5 }, served_at = 1793484969000,
+        issued_at = '1793484969000', date = '2026-10-31 22:16:09', custom_at = { year = 2026, month = 5, day = 6, hour = 7, min = 8 },
+        last_updated = nil, opaque_at = { 1, 2, 3 },
+    } } end
+    local expected = '2026-10-31 22:16'
+    local row = QB.callback.registry['qbmdt:server:reports'](94)[1]
+    h.assertEqual(row.updated_at, expected)
+    h.assertEqual(row.created_at, expected)
+    h.assertEqual(row.expires_at, '2026-10-31 22:16')
+    h.assertEqual(row.closed_at, '2026-01-02 03:04')
+    h.assertEqual(row.served_at, expected)
+    h.assertEqual(row.issued_at, expected)
+    h.assertEqual(row.date, '2026-10-31 22:16')
+    h.assertEqual(row.custom_at, '2026-05-06 07:08', 'any *_at key is formatted')
+    h.assertEqual(row.opaque_at, nil, 'an unparseable table is dropped, never passed through')
+    Config.mdt.dateFormat = 'DD/MM/YYYY HH:mm:ss'
+    row = QB.callback.registry['qbmdt:server:reports'](94)[1]
+    Config.mdt.dateFormat = saved
+    h.assertEqual(row.expires_at, '31/10/2026 22:16:09')
+    h.assertEqual(row.closed_at, '02/01/2026 03:04:05')
+    Config.mdt.dateFormat = 'YYYY-MM-DD'
+    row = QB.callback.registry['qbmdt:server:reports'](94)[1]
+    Config.mdt.dateFormat = saved
+    h.assertEqual(row.updated_at, '2026-10-31')
+end)
+
+h.test('person profile times (warrants, BOLOs, reports, records) are strings', function()
+    resetObservations()
+    handle.ensurePlayer(94)
+    local when = { year = 2026, month = 10, day = 31, hour = 22, min = 5 }
+    _G.json = { decode = function() return {} end }
+    handle.sqlSingle = function(query)
+        if query:find('FROM `players`', 1, true) then return { citizenid = 'ABC12345', name = 'Jane Doe', charinfo = '{}', metadata = '{}', job = '{}' } end
+    end
+    handle.sqlQuery = function(query)
+        if query:find('qbmdt_warrants', 1, true) then return { { id = 1, reason = 'r', expires_at = when } } end
+        if query:find('qbmdt_bolos', 1, true) then return { { id = 1, title = 't', expires_at = 1793484969000 } } end
+        if query:find('qbmdt_reports', 1, true) then return { { id = 1, title = 't', status = 'open', created_at = when } } end
+        return { { created_at = when, purchased_at = when } }
+    end
+    local out = QB.callback.registry['qbmdt:server:person'](94, 'ABC12345')
+    h.assertEqual(out.warrants[1].expires_at, '2026-10-31 22:05')
+    h.assertEqual(out.bolos[1].expires_at, '2026-10-31 22:16')
+    h.assertEqual(out.reports[1].created_at, '2026-10-31 22:05')
+    h.assertEqual(out.criminal[1].created_at, '2026-10-31 22:05')
+    h.assertEqual(out.firearms[1].purchased_at, '2026-10-31 22:05')
+end)
+
+h.test('a failing list query returns its reason and is logged instead of an empty list', function()
+    resetObservations()
+    handle.ensurePlayer(94)
+    handle.sqlQuery = function() return nil, 'Illegal mix of collations' end
+    for _, name in ipairs({ 'reports', 'cases', 'warrants', 'bolos', 'reportOptions' }) do
+        local rows, err = QB.callback.registry['qbmdt:server:' .. name](94)
+        h.assertEqual(rows, nil, name .. ' must not turn an error into an empty list')
+        h.assertTrue(err:find('Illegal mix of collations', 1, true) ~= nil, name .. ': ' .. tostring(err))
+    end
+    handle.sqlSingle = function() return { open_reports = 4 } end
+    local data, err = QB.callback.registry['qbmdt:server:dashboard'](94)
+    h.assertEqual(data, nil)
+    h.assertTrue(err:find('Could not load recent reports', 1, true) ~= nil, tostring(err))
+    handle.sqlQuery = function() return { { id = 4, title = 't', status = 'open', updated_at = 1793484969000 } } end
+    data = QB.callback.registry['qbmdt:server:dashboard'](94)
+    h.assertEqual(data.open_reports, 4)
+    h.assertEqual(data.recent[1].updated_at, '2026-10-31 22:16')
+    handle.sqlSingle = function() return nil, 'no table' end
+    data, err = QB.callback.registry['qbmdt:server:dashboard'](94)
+    h.assertEqual(data, nil)
+    h.assertTrue(err:find('no table', 1, true) ~= nil)
+end)
+
+h.test('reports list joins pin collations on charges and players', function()
+    resetObservations()
+    handle.ensurePlayer(94)
+    local seen
+    handle.sqlQuery = function(query) seen = query; return {} end
+    QB.callback.registry['qbmdt:server:reports'](94)
+    h.assertTrue(seen:find('c.`code` COLLATE utf8mb4_unicode_ci = r.`charge_code` COLLATE utf8mb4_unicode_ci', 1, true) ~= nil)
+    h.assertTrue(seen:find('p.`citizenid` COLLATE utf8mb4_unicode_ci', 1, true) ~= nil)
+end)
+
+h.test('report subject: citizen ID, case-insensitive full name, ambiguous and unknown names', function()
+    resetObservations()
+    local author = handle.ensurePlayer(99)
+    readyMdt()
+    local NULL = QB.sql.NULL
+    local lookups = {}
+    handle.sqlSingle = function(query, params)
+        if query:find('FROM `players`', 1, true) and params[1] == 'ZZZ99999' then return { citizenid = 'ZZZ99999' } end
+    end
+    handle.sqlQuery = function(query, params)
+        if query:find('LOWER(TRIM(`name`))', 1, true) then
+            lookups[#lookups + 1] = { query = query, params = params }
+            local name = params[1]:lower()
+            if name == 'jane doe' then return { { citizenid = 'JAN00001' } } end
+            if name == 'twin one' then return { { citizenid = 'A' }, { citizenid = 'B' } } end
+        end
+        return {}
+    end
+    local create = QB.callback.registry['qbmdt:server:createReport']
+    local function report(subject)
+        local before = #handle.sqlInserts
+        local id, err = create(99, { title = 'T', narrative = 'N', citizenid = subject })
+        return id, err, handle.sqlInserts[before + 1]
+    end
+    local id, err, insert = report('ZZZ99999')
+    h.assertTrue(id ~= nil, tostring(err))
+    h.assertEqual(insert.params[3], 'ZZZ99999')
+    id, err, insert = report('  JANE   DOE ')
+    h.assertTrue(id ~= nil)
+    h.assertEqual(insert.params[3], NULL, 'inner whitespace must match exactly, not fuzzily')
+    id, err, insert = report('JaNe DoE')
+    h.assertTrue(id ~= nil, tostring(err))
+    h.assertEqual(insert.params[3], 'JAN00001', 'case-insensitive full name links the citizen')
+    h.assertTrue(insert.params[3] ~= author.citizenid, 'never defaults to the creator')
+    h.assertEqual(insert.params[4], NULL)
+    h.assertTrue(lookups[#lookups].query:find('firstname', 1, true) ~= nil and lookups[#lookups].query:find('lastname', 1, true) ~= nil,
+        'name lookup uses first + last name')
+    id, err = report('Twin One')
+    h.assertEqual(id, nil)
+    h.assertEqual(err, 'More than one citizen is named "Twin One". Use the citizen ID instead.')
+    id, err, insert = report('Nobody Here')
+    h.assertTrue(id ~= nil, tostring(err))
+    h.assertEqual(insert.params[3], NULL)
+    h.assertEqual(insert.params[4], 'Nobody Here', 'unknown name kept as subject_text')
+    Config.mdt.reports.allowUnknownSubject = false
+    id, err = report('Nobody Here')
+    Config.mdt.reports.allowUnknownSubject = true
+    h.assertEqual(id, nil)
+    h.assertEqual(err, 'Subject must be a citizen ID. No citizen matches "Nobody Here".')
+    Config.mdt.reports.resolveSubjectByName = false
+    id, err, insert = report('Jane Doe')
+    Config.mdt.reports.resolveSubjectByName = true
+    h.assertEqual(insert.params[3], NULL, 'name matching can be disabled')
+    -- the creator is only the subject when they type their own name or ID
+    id, err = report(author.citizenid)
+    h.assertEqual(id, nil)
+    h.assertEqual(err, 'Citizen ID not found. Check the subject citizen ID.', 'an unknown ID is an error, never swapped for the creator')
+end)
+
 h.report('qbmdt server')

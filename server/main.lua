@@ -86,10 +86,14 @@ local function resolvePersonByName(name)
 end
 -- Everything the terminal shows as a time goes through formatTime so the NUI
 -- only receives plain strings; raw TIMESTAMP columns can arrive as tables.
-local TIME_KEYS = { created_at = true, updated_at = true, expires_at = true, purchased_at = true, last_updated = true }
+local TIME_KEYS = { created_at = true, updated_at = true, expires_at = true, purchased_at = true, last_updated = true,
+    closed_at = true, served_at = true, issued_at = true, date = true, timestamp = true }
+-- Any column named *_at is a time too, so a new column can never leak a raw table to the NUI.
+local function isTimeKey(key) return TIME_KEYS[key] == true or (type(key) == 'string' and key:sub(-3) == '_at') end
 local function ts(column) return 'CAST(' .. column .. ' AS CHAR)' end
 local function formatTime(value)
     local y, mo, d, h, mi, se
+    if type(value) == 'string' and value:match('^%d+$') and #value >= 9 then value = tonumber(value) end
     if type(value) == 'number' then
         local t = os.date('!*t', math.floor(value > 1e11 and value / 1000 or value))
         y, mo, d, h, mi, se = t.year, t.month, t.day, t.hour, t.min, t.sec
@@ -108,10 +112,20 @@ end
 local function withTimes(data)
     if type(data) ~= 'table' then return data end
     for key, value in pairs(data) do
-        if TIME_KEYS[key] then data[key] = formatTime(value)
+        if isTimeKey(key) then data[key] = formatTime(value)
         elseif type(value) == 'table' then withTimes(value) end
     end
     return data
+end
+-- Runs a list query. A failure is logged and returned with its reason; callers must not
+-- turn it into an empty list, or a broken query reads as "No reports found."
+local function listQuery(what, sql, params)
+    local rows, err = QB.sql.query(sql, params)
+    if not rows then
+        logError(what .. ' query failed', err)
+        return nil, ('Could not load %s: %s'):format(what, cleanText(tostring(err or 'database query failed'), 200, false))
+    end
+    return withTimes(rows)
 end
 local function audit(src, action, targetType, targetId, details)
     local actor = citizenId(src)
@@ -376,13 +390,19 @@ end)
 -- authority boundary.
 QB.callback.register('qbmdt:server:dashboard', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    local counts = QB.sql.single([[SELECT
+    local counts, countErr = QB.sql.single([[SELECT
         (SELECT COUNT(*) FROM `qbmdt_reports` WHERE `status` = 'open') AS `open_reports`,
         (SELECT COUNT(*) FROM `qbmdt_cases` WHERE `status` <> 'closed') AS `open_cases`,
         (SELECT COUNT(*) FROM `qbmdt_warrants` WHERE `status` = 'active' AND `expires_at` > NOW()) AS `active_warrants`,
-        (SELECT COUNT(*) FROM `qbmdt_bolos` WHERE `status` = 'active' AND (`expires_at` IS NULL OR `expires_at` > NOW())) AS `active_bolos`]]) or {}
-    counts.recent = withTimes(QB.sql.query([[SELECT `id`,`title`,`status`,`author_citizenid`,]] .. ts('`updated_at`') .. [[ AS `updated_at`
-        FROM `qbmdt_reports` ORDER BY `updated_at` DESC LIMIT 8]]) or {})
+        (SELECT COUNT(*) FROM `qbmdt_bolos` WHERE `status` = 'active' AND (`expires_at` IS NULL OR `expires_at` > NOW())) AS `active_bolos`]])
+    if not counts then
+        logError('dashboard counts query failed', countErr)
+        return nil, ('Could not load the dashboard: %s'):format(cleanText(tostring(countErr or 'database query failed'), 200, false))
+    end
+    local recent, recentErr = listQuery('recent reports', [[SELECT `id`,`title`,`status`,`author_citizenid`,]] .. ts('`updated_at`') .. [[ AS `updated_at`
+        FROM `qbmdt_reports` ORDER BY `updated_at` DESC, `id` DESC LIMIT 8]])
+    if not recent then return nil, recentErr end
+    counts.recent = recent
     return counts
 end)
 
@@ -409,20 +429,20 @@ end)
 
 QB.callback.register('qbmdt:server:reports', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return withTimes(QB.sql.query(([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`charge_code`,c.`label` AS `charge_label`,
+    return listQuery('reports', ([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`charge_code`,c.`label` AS `charge_label`,
         r.`subject_text`,r.`charge_text`,r.`author_citizenid`,]] .. ts('r.`updated_at`') .. [[ AS `updated_at`,p.`name` AS `subject_name`
         FROM `qbmdt_reports` r LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
-        LEFT JOIN `qbmdt_charges` c ON c.`code` = r.`charge_code`
-        ORDER BY (r.`status` = 'open') DESC,r.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {})
+        LEFT JOIN `qbmdt_charges` c ON c.`code` COLLATE utf8mb4_unicode_ci = r.`charge_code` COLLATE utf8mb4_unicode_ci
+        ORDER BY (r.`status` = 'open') DESC,r.`updated_at` DESC,r.`id` DESC LIMIT %d]]):format(C.operations.recentLimit))
 end)
 
 QB.callback.register('qbmdt:server:reportOptions', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return QB.sql.query([[SELECT r.`id`,r.`title`,
+    return listQuery('report options', [[SELECT r.`id`,r.`title`,
         COALESCE(p.`name`,r.`subject_citizenid`,r.`subject_text`,'Unknown') AS `subject`
         FROM `qbmdt_reports` r
         LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
-        ORDER BY r.`created_at` DESC,r.`id` DESC]]) or {}
+        ORDER BY r.`created_at` DESC,r.`id` DESC]])
 end)
 
 QB.callback.register('qbmdt:server:report', function(src, value)
@@ -435,7 +455,7 @@ QB.callback.register('qbmdt:server:report', function(src, value)
         FROM `qbmdt_reports` r
         LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
         LEFT JOIN `players` a ON a.`citizenid` COLLATE utf8mb4_unicode_ci = r.`author_citizenid` COLLATE utf8mb4_unicode_ci
-        LEFT JOIN `qbmdt_charges` c ON c.`code` = r.`charge_code` WHERE r.`id` = ?]], { id }))
+        LEFT JOIN `qbmdt_charges` c ON c.`code` COLLATE utf8mb4_unicode_ci = r.`charge_code` COLLATE utf8mb4_unicode_ci WHERE r.`id` = ?]], { id }))
 end)
 
 local function createReport(src, input)
@@ -531,9 +551,9 @@ end)
 
 QB.callback.register('qbmdt:server:cases', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return withTimes(QB.sql.query(([[SELECT c.`id`,c.`title`,c.`priority`,c.`status`,c.`lead_citizenid`,]] .. ts('c.`updated_at`') .. [[ AS `updated_at`,
+    return listQuery('cases', ([[SELECT c.`id`,c.`title`,c.`priority`,c.`status`,c.`lead_citizenid`,]] .. ts('c.`updated_at`') .. [[ AS `updated_at`,
         (SELECT COUNT(*) FROM `qbmdt_case_reports` cr WHERE cr.`case_id` = c.`id`) AS `report_count`
-        FROM `qbmdt_cases` c ORDER BY (c.`status` <> 'closed') DESC,c.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {})
+        FROM `qbmdt_cases` c ORDER BY (c.`status` <> 'closed') DESC,c.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit))
 end)
 
 QB.callback.register('qbmdt:server:case', function(src, value)
@@ -624,11 +644,11 @@ end)
 
 QB.callback.register('qbmdt:server:warrants', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return withTimes(QB.sql.query(([[SELECT w.`id`,w.`citizenid`,w.`reason`,
+    return listQuery('warrants', ([[SELECT w.`id`,w.`citizenid`,w.`reason`,
         IF(w.`status` = 'active' AND w.`expires_at` <= NOW(),'expired',w.`status`) AS `status`,
         DATE_FORMAT(w.`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,w.`author_citizenid`,p.`name` AS `subject_name`
         FROM `qbmdt_warrants` w LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = w.`citizenid` COLLATE utf8mb4_unicode_ci
-        ORDER BY (w.`status` = 'active' AND w.`expires_at` > NOW()) DESC,w.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {})
+        ORDER BY (w.`status` = 'active' AND w.`expires_at` > NOW()) DESC,w.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit))
 end)
 
 QB.callback.register('qbmdt:server:createWarrant', function(src, input)
@@ -660,13 +680,13 @@ end)
 
 QB.callback.register('qbmdt:server:bolos', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return withTimes(QB.sql.query(([[SELECT b.`id`,b.`subject_type`,b.`subject_identifier`,
+    return listQuery('BOLOs', ([[SELECT b.`id`,b.`subject_type`,b.`subject_identifier`,
         COALESCE(b.`subject_label`,IF(b.`subject_type` = 'person' AND p.`citizenid` IS NOT NULL,CONCAT(p.`name`,' (',p.`citizenid`,')'),NULL),b.`subject_identifier`) AS `subject_label`,
         b.`title`,b.`description`,
         IF(b.`status` = 'active' AND b.`expires_at` IS NOT NULL AND b.`expires_at` <= NOW(),'expired',b.`status`) AS `status`,
         b.`author_citizenid`,DATE_FORMAT(b.`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,]] .. ts('b.`updated_at`') .. [[ AS `updated_at` FROM `qbmdt_bolos` b
         LEFT JOIN `players` p ON b.`subject_type` = 'person' AND p.`citizenid` COLLATE utf8mb4_unicode_ci = b.`subject_identifier` COLLATE utf8mb4_unicode_ci
-        ORDER BY (b.`status` = 'active' AND (b.`expires_at` IS NULL OR b.`expires_at` > NOW())) DESC,b.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit)) or {})
+        ORDER BY (b.`status` = 'active' AND (b.`expires_at` IS NULL OR b.`expires_at` > NOW())) DESC,b.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit))
 end)
 
 local function createBolo(src, input)
