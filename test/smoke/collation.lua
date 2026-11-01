@@ -23,7 +23,6 @@ local function sqlStrings(source)
     return found
 end
 
--- Returns a list of problems found in one SQL string.
 local function audit(sql)
     local problems = {}
     if not sql:find('qbmdt_', 1, true) then return problems end
