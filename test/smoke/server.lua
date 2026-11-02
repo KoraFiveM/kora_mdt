@@ -325,16 +325,11 @@ h.test('report creation succeeds for empty, citizen ID, name and free-text subje
     handle.sqlInsertError = nil
 end)
 
-h.test('BOLO subject is stored and shown as a readable label and never the creator', function()
+h.test('BOLO subject is shown exactly as typed; a name match only links the citizen', function()
     resetObservations()
     local author = handle.ensurePlayer(98)
-    local previousJson = _G.json
-    _G.json = { decode = function() return { firstname = "Joe", lastname = "Jones" } end }
     readyMdt()
     handle.sqlSingle = function(query, params)
-        if query:find('`charinfo`', 1, true) and params[1] == 'JJ123456' then
-            return { citizenid = 'JJ123456', name = 'acct', charinfo = '{"firstname":"Joe","lastname":"Jones"}' }
-        end
         if query:find('FROM `players`', 1, true) and params[1] == 'JJ123456' then return { citizenid = 'JJ123456' } end
     end
     handle.sqlQuery = function(query, params)
@@ -344,24 +339,50 @@ h.test('BOLO subject is stored and shown as a readable label and never the creat
         return {}
     end
     local create = QB.callback.registry['qbmdt:server:createBolo']
-    local function make(identifier)
+    local function make(kind, identifier)
         local before = #handle.sqlInserts
-        local id, err = create(98, { subject_type = 'person', identifier = identifier, title = 'Wanted', description = 'Detain.', days = 1 })
+        local id, err = create(98, { subject_type = kind, identifier = identifier, title = 'Wanted', description = 'Detain.', days = 1 })
         h.assertTrue(id ~= nil, tostring(err))
-        return handle.sqlInserts[before + 1].params
+        local insert = handle.sqlInserts[before + 1]
+        h.assertTrue(insert.query:find('`subject_text`', 1, true) ~= nil)
+        return insert.params
     end
-    local params = make('Joe Jones')
+    local params = make('person', 'Joe Jones')
+    h.assertEqual(params[2], 'JJ123456', 'an exact unique name links the citizen')
+    h.assertEqual(params[3], 'Joe Jones', 'the subject text is what was typed')
+    params = make('person', '  joe jones ')
     h.assertEqual(params[2], 'JJ123456')
-    h.assertEqual(params[3], 'Joe Jones (JJ123456)')
-    params = make('JJ123456')
-    h.assertEqual(params[3], 'Joe Jones (JJ123456)')
-    params = make('Nobody Known')
+    h.assertEqual(params[3], 'joe jones')
+    params = make('person', 'JJ123456')
+    h.assertEqual(params[2], 'JJ123456')
+    h.assertEqual(params[3], 'JJ123456')
+    params = make('person', 'Nobody Known')
     h.assertEqual(params[2], 'Nobody Known')
     h.assertEqual(params[3], 'Nobody Known')
     h.assertTrue(params[2] ~= author.citizenid and params[3] ~= author.citizenid, 'the creator is never substituted')
-    handle.sqlQuery = function() return { { id = 1, subject_label = 'Joe Jones (JJ123456)' } } end
-    h.assertEqual(QB.callback.registry['qbmdt:server:bolos'](98)[1].subject_label, 'Joe Jones (JJ123456)')
-    _G.json = previousJson
+    params = make('vehicle', 'abc 123')
+    h.assertEqual(params[2], 'ABC 123')
+    h.assertEqual(params[3], 'abc 123')
+
+    local listed
+    handle.sqlQuery = function(query)
+        listed = query
+        return {
+            { id = 6, subject_type = 'person', subject_identifier = 'JJ123456', subject_text = 'Joe Jones', linked_name = 'Joe Jones', linked_citizenid = 'JJ123456' },
+            { id = 5, subject_type = 'person', subject_identifier = 'JJ123456', legacy_label = 'Joe Jones (JJ123456)', linked_name = 'Joe Jones', linked_citizenid = 'JJ123456' },
+            { id = 4, subject_type = 'person', subject_identifier = 'JJ123456', linked_name = 'Joe Jones', linked_citizenid = 'JJ123456' },
+            { id = 3, subject_type = 'person', subject_identifier = 'RaVn', legacy_label = 'RaVn' },
+            { id = 2, subject_type = 'vehicle', subject_identifier = 'RAVN' },
+            { id = 1, subject_type = 'person', subject_identifier = 'GONE1234' },
+        }
+    end
+    local rows = QB.callback.registry['qbmdt:server:bolos'](98)
+    h.assertTrue(listed:find('b.`subject_text`', 1, true) ~= nil)
+    h.assertTrue(listed:find('CONCAT(', 1, true) == nil, 'the list never builds "Name (CID)"')
+    local subjects = {}
+    for i, row in ipairs(rows) do subjects[i] = row.subject_label; h.assertEqual(row.legacy_label, nil) end
+    h.assertEqual(table.concat(subjects, '|'), 'Joe Jones|Joe Jones|Joe Jones|RaVn|RAVN|GONE1234')
+    h.assertEqual(rows[1].linked_citizenid, 'JJ123456')
 end)
 
 h.test('warrant and BOLO state changes use server-owned transitions and audit', function()

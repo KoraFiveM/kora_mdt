@@ -644,11 +644,15 @@ local function openTerminal(role, policeBoss)
                 for _, row in ipairs(QB.callback.trigger('qbmdt:server:bolos') or {}) do if tostring(row.id) == tostring(itemId) then selectedBolo = row; break end end
                 if not selectedBolo then return message(false, nil, 'BOLO not found.') end
                 local actions = selectedBolo.status == 'active' and { { id = 'bolo:resolve', label = 'Resolve BOLO', icon = 'check-circle', variant = 'primary', confirm = 'Resolve this BOLO?' } } or {}
+                local details = { { label = 'status', value = tostring(selectedBolo.status or 'unknown') },
+                    { label = 'Type', value = tostring(selectedBolo.subject_type or '—') }, { label = 'Subject', value = tostring(selectedBolo.subject_label or selectedBolo.subject_identifier or '—') },
+                    { label = 'Expires', value = when(selectedBolo.expires_at, '—') }, { label = 'Created by', value = tostring(selectedBolo.author_citizenid or 'Unknown') }, }
+                if (C.bolo or {}).showLinkedCitizen ~= false and selectedBolo.subject_type == 'person' and selectedBolo.linked_citizenid then
+                    table.insert(details, 4, { label = 'Linked citizen ID', value = tostring(selectedBolo.linked_citizenid) })
+                end
                 return showResult({ title = ('BOLO #%s · %s'):format(tostring(selectedBolo.id), tostring(selectedBolo.title or 'Untitled')),
                     description = tostring(selectedBolo.description or ''), actions = actions, blocks = { {
-                    type = 'details', columns = 2, items = { { label = 'status', value = tostring(selectedBolo.status or 'unknown') },
-                        { label = 'Type', value = tostring(selectedBolo.subject_type or '—') }, { label = 'Subject', value = tostring(selectedBolo.subject_label or selectedBolo.subject_identifier or '—') },
-                        { label = 'Expires', value = when(selectedBolo.expires_at, '—') }, { label = 'Created by', value = tostring(selectedBolo.author_citizenid or 'Unknown') }, },
+                    type = 'details', columns = 2, items = details,
                 } } })
             elseif selectedId == 'bolo:resolve' and selectedBolo and policeAccess then
                 local ok, err = QB.callback.trigger('qbmdt:server:resolveBolo', selectedBolo.id)

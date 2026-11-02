@@ -56,22 +56,6 @@ end
 local function logError(where, err)
     print(('^1[kora_mdt]^7 %s: %s'):format(where, tostring(err)))
 end
-local function decodeJson(value)
-    if type(value) == 'table' then return value end
-    if type(value) ~= 'string' or value == '' then return {} end
-    local ok, decoded = pcall(function() return json.decode(value) end)
-    return ok and type(decoded) == 'table' and decoded or {}
-end
--- "First Last (CID)" for a citizen, falling back to the account name and then the bare id.
-local function personLabel(cid)
-    local row = cid and QB.sql.single('SELECT `citizenid`,`name`,`charinfo` FROM `players` WHERE `citizenid` = ? AND `deleted_at` IS NULL', { cid })
-    if not row then return cid end
-    local info = decodeJson(row.charinfo)
-    local first, last = cleanText(info.firstname, 64, false), cleanText(info.lastname, 64, false)
-    local name = (first ~= '' and last ~= '') and (first .. ' ' .. last) or cleanText(row.name, 128, false)
-    if name == '' or name == 'unknown' then return row.citizenid end
-    return ('%s (%s)'):format(name, row.citizenid)
-end
 -- Exact, case-insensitive full-name lookup. Returns the citizen ID of a single match,
 -- nil for no match, or nil plus true when several citizens share the name.
 local function resolvePersonByName(name)
@@ -678,15 +662,36 @@ QB.callback.register('qbmdt:server:closeWarrant', function(src, value, status)
     return true
 end)
 
-QB.callback.register('qbmdt:server:bolos', function(src)
+-- The BOLO Subject is the text the officer typed. Rows saved before migration 5 have no
+-- subject_text: version 4 stored "Name (CID)" in subject_label and earlier rows only the
+-- resolved citizen ID, so fall back without ever appending a citizen ID to a person.
+local function boloSubject(row)
+    if type(row.subject_text) == 'string' and row.subject_text ~= '' then return row.subject_text end
+    local identifier = tostring(row.subject_identifier or '')
+    if row.subject_type ~= 'person' then return identifier end
+    local legacy = type(row.legacy_label) == 'string' and row.legacy_label or ''
+    local suffix = ' (' .. identifier .. ')'
+    if identifier ~= '' and #legacy > #suffix and legacy:sub(-#suffix) == suffix then legacy = legacy:sub(1, -#suffix - 1) end
+    if legacy ~= '' and legacy ~= identifier then return legacy end
+    if type(row.linked_name) == 'string' and row.linked_name ~= '' then return row.linked_name end
+    return identifier
+end
+
+Kora.callback.register('qbmdt:server:bolos', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return listQuery('BOLOs', ([[SELECT b.`id`,b.`subject_type`,b.`subject_identifier`,
-        COALESCE(b.`subject_label`,IF(b.`subject_type` = 'person' AND p.`citizenid` IS NOT NULL,CONCAT(p.`name`,' (',p.`citizenid`,')'),NULL),b.`subject_identifier`) AS `subject_label`,
+    local rows, err = listQuery('BOLOs', ([[SELECT b.`id`,b.`subject_type`,b.`subject_identifier`,b.`subject_text`,
+        b.`subject_label` AS `legacy_label`,p.`name` AS `linked_name`,p.`citizenid` AS `linked_citizenid`,
         b.`title`,b.`description`,
         IF(b.`status` = 'active' AND b.`expires_at` IS NOT NULL AND b.`expires_at` <= NOW(),'expired',b.`status`) AS `status`,
         b.`author_citizenid`,DATE_FORMAT(b.`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,]] .. ts('b.`updated_at`') .. [[ AS `updated_at` FROM `qbmdt_bolos` b
         LEFT JOIN `players` p ON b.`subject_type` = 'person' AND p.`citizenid` COLLATE utf8mb4_unicode_ci = b.`subject_identifier` COLLATE utf8mb4_unicode_ci
         ORDER BY (b.`status` = 'active' AND (b.`expires_at` IS NULL OR b.`expires_at` > NOW())) DESC,b.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit))
+    if not rows then return nil, err end
+    for _, row in ipairs(rows) do
+        row.subject_label = boloSubject(row)
+        row.legacy_label, row.linked_name = nil, nil
+    end
+    return rows
 end)
 
 local function createBolo(src, input)
@@ -700,20 +705,19 @@ local function createBolo(src, input)
     if identifier == '' then return nil, kind == 'vehicle' and 'Enter the vehicle plate.' or 'Enter a citizen ID or name for the subject.' end
     local missing = missingRequired('bolo', { 'title', 'description' }, { title = title, description = description })
     if missing then return nil, missing end
-    -- subject_identifier stays the lookup key (citizen ID, plate, or the free text);
-    -- subject_label is what the BOLO list shows: the name entered, or "First Last (CID)".
-    local label = identifier
+    -- subject_text is exactly what was typed and is the only thing shown as the subject.
+    -- subject_identifier is the lookup key: a linked citizen ID (exact ID or exact unique
+    -- name), the plate, or the free text itself.
+    local typed = identifier
     if kind == 'person' then
         local rules = C.bolo or {}
         local cid = cleanCid(identifier)
         if cid and personExists(cid) then
             identifier = cid
-            label = personLabel(cid)
         else
             local resolved, ambiguous
             if rules.resolvePersonByName ~= false then resolved, ambiguous = resolvePersonByName(identifier) end
             if resolved then
-                label = personLabel(resolved)
                 identifier = resolved
             elseif ambiguous then
                 return nil, ('More than one citizen is named "%s". Use the citizen ID instead.'):format(identifier)
@@ -723,11 +727,10 @@ local function createBolo(src, input)
         end
     else
         identifier = identifier:upper()
-        label = identifier
     end
-    local id, err = QB.sql.insert([[INSERT INTO `qbmdt_bolos`
-        (`subject_type`,`subject_identifier`,`subject_label`,`title`,`description`,`author_citizenid`,`expires_at`)
-        VALUES (?,?,?,?,?,?,DATE_ADD(NOW(), INTERVAL ? DAY))]], { kind, identifier, label:sub(1, 160), title, description, citizenId(src), days })
+    local id, err = Kora.sql.insert([[INSERT INTO `qbmdt_bolos`
+        (`subject_type`,`subject_identifier`,`subject_text`,`title`,`description`,`author_citizenid`,`expires_at`)
+        VALUES (?,?,?,?,?,?,DATE_ADD(NOW(), INTERVAL ? DAY))]], { kind, identifier, typed, title, description, citizenId(src), days })
     if not id then
         logError('createBolo insert failed', err)
         return nil, 'The BOLO could not be saved (database error). Ask an administrator to check the server console.'

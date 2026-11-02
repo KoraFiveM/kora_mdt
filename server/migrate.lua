@@ -28,6 +28,7 @@ CreateThread(function()
         { version = 1, name = 'records', file = 'sql/001_records.sql' },
         { version = 2, name = 'operations', file = 'sql/002_operations.sql' },
         { version = 4, name = 'labels', file = 'sql/004_labels.sql' },
+        { version = 5, name = 'bolo_subject_text', file = 'sql/005_bolo_subject_text.sql' },
     }, checksum)
     if err then print(('^1[qbmdt]^7 migration failed: %s'):format(tostring(err)))
     else TriggerEvent('qbmdt:server:databaseReady') end

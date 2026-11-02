@@ -189,6 +189,7 @@ function M.install()
     end
 
     local exportImpls = { kora_core = {}, kora_inventory = {}, kora_police = {} }
+    _G.Kora = _G.QB -- kora_lib sets QB = Kora (the same table)
     _G.exports = setmetatable({}, {
         __call = function() end,
         __index = function(_, resource)

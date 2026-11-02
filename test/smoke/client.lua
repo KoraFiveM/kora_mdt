@@ -365,6 +365,35 @@ h.test('a new report appears in the reports list, dashboard timeline and open co
     h.assertEqual(type(dash[2].items[1].timestamp), 'string')
 end)
 
+h.test('BOLO details show the subject as typed and the linked citizen ID as its own row', function()
+    openPolice()
+    local function detailItems(value, seen)
+        seen = seen or {}
+        if type(value) ~= 'table' or seen[value] then return nil end
+        seen[value] = true
+        if value.type == 'details' and type(value.items) == 'table' then return value.items end
+        for _, child in pairs(value) do
+            local found = detailItems(child, seen)
+            if found then return found end
+        end
+    end
+    local function labels(items)
+        local out = {}
+        for _, item in ipairs(items) do out[item.label] = item.value end
+        return out
+    end
+    serverData['qbmdt:server:bolos'] = { value = { { id = 5, subject_type = 'person', subject_identifier = 'JJ123456',
+        subject_label = 'Joe Jones', linked_citizenid = 'JJ123456', title = 't', status = 'active', expires_at = '2026-11-08 18:09' } } }
+    local byLabel = labels(detailItems(registeredApp.onAction('bolo:select', { itemId = '5' })))
+    h.assertEqual(byLabel.Subject, 'Joe Jones')
+    h.assertEqual(byLabel['Linked citizen ID'], 'JJ123456')
+    Config.mdt.bolo.showLinkedCitizen = false
+    byLabel = labels(detailItems(registeredApp.onAction('bolo:select', { itemId = '5' })))
+    Config.mdt.bolo.showLinkedCitizen = true
+    h.assertEqual(byLabel.Subject, 'Joe Jones')
+    h.assertEqual(byLabel['Linked citizen ID'], nil)
+end)
+
 h.test('closing a report refreshes the list and dashboard', function()
     openPolice()
     serverData['qbmdt:server:report'] = { value = { id = 5, title = 'Fresh', status = 'open' } }
@@ -413,9 +442,9 @@ h.test('warrant, BOLO and case creation refresh their lists and the dashboard', 
     h.assertEqual(ids(result).warrants.content.blocks[2].rows[1].expires, '2026-11-02 10:00')
     h.assertEqual(ids(result).dashboard.content.blocks[1].items[3].value, 1)
     serverData['qbmdt:server:createBolo'] = { value = 4 }
-    serverData['qbmdt:server:bolos'] = { value = { { id = 4, subject_type = 'person', subject_label = 'Jane Doe (ABC)', title = 't', status = 'active', expires_at = '2026-11-02 10:00' } } }
+    serverData['qbmdt:server:bolos'] = { value = { { id = 4, subject_type = 'person', subject_label = 'Jane Doe', title = 't', status = 'active', expires_at = '2026-11-02 10:00' } } }
     result = registeredApp.onAction('bolo:create', { value = {} })
-    h.assertEqual(ids(result).bolos.content.blocks[2].rows[1].subject, 'Jane Doe (ABC)')
+    h.assertEqual(ids(result).bolos.content.blocks[2].rows[1].subject, 'Jane Doe')
     serverData['qbmdt:server:cases'] = { value = {} }
     serverData['qbmdt:server:createCase'] = { value = 9 }
     serverData['qbmdt:server:cases'] = { value = { { id = 9, title = 'c', priority = 'normal', status = 'open', updated_at = '2026-11-01 10:00' } } }

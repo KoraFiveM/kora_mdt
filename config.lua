@@ -93,6 +93,7 @@ Config.mdt = {
     bolo = {
         resolvePersonByName = true,       -- true = a Person subject that is not a citizen ID is matched to a citizen by exact full name (a unique match is stored as that citizen ID)
         allowUnknownPersonSubject = true, -- true = a Person subject that matches no citizen is stored as free text (name/description); false = reject it with an error
+        showLinkedCitizen = true,         -- true = a Person BOLO linked to a citizen shows a separate "Linked citizen ID" row in its details; the Subject is always the text as typed
     },
     charges = {
         { code = 'SPD-01', label = 'Speeding', fine = 250 },
@@ -167,7 +168,8 @@ if QB and QB.config and QB.config.adopt then
         ['mdt.reports.allowUnknownSubject'] = 'When enabled, a report subject that matches no citizen is saved as unlinked free text. When disabled the report is rejected with the message "Subject must be a citizen ID".',
         ['mdt.reports.allowCustomCharges'] = 'When enabled, a report charge that is not in the charge catalogue is saved as free text on the report (no criminal record entry is created). When disabled it is rejected and the officer must pick a catalogue charge.',
         ['mdt.reports.requireCharge'] = 'When enabled the server rejects incident reports without a charge. Whether a charge outside the catalogue is accepted is controlled by mdt.reports.allowCustomCharges.',
-        ['mdt.bolo.resolvePersonByName'] = 'When enabled, a Person BOLO subject that is not a known citizen ID is looked up by exact, case-insensitive full name. A single match is stored as that citizen (shown as First Last (CID)); several matches are rejected so the officer can use the citizen ID.',
+        ['mdt.bolo.resolvePersonByName'] = 'When enabled, a Person BOLO subject that is not a known citizen ID is looked up by exact, case-insensitive full name. A single match links the BOLO to the profile of that citizen; the BOLO still shows the subject exactly as typed. Several matches are rejected so the officer can use the citizen ID.',
+        ['mdt.bolo.showLinkedCitizen'] = 'When enabled, the details of a Person BOLO that is linked to a citizen (exact citizen ID or exact unique full name) show a separate Linked citizen ID row. The Subject column and field always show exactly what the officer typed.',
         ['mdt.bolo.allowUnknownPersonSubject'] = 'When enabled, a Person BOLO subject that matches no citizen ID or name is stored as free text (for example a name or description). When disabled the BOLO is rejected with a clear message.',
         ['mdt.requiredFields.report.subject'] = 'When enabled, incident reports must name an existing subject citizen ID. Same as the older mdt.reports.requireSubject option, which still works.',
         ['mdt.requiredFields.report.charge'] = 'When enabled, incident reports must carry a charge from the charge catalogue. Same as the older mdt.reports.requireCharge option, which still works.',
