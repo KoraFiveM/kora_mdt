@@ -12,7 +12,7 @@ Config.mdt = {
         shopId = 'ammunation',          -- only this civilian shop requires a weapon licence and registers purchases
         lookupMode = 'npc',             -- 'npc' requires the configured counter target; 'mdt' enables the terminal lookup
         shopRecords = {
-            { coords = vector4(22.09, -1107.28, 29.80, 160.0), label = 'Ammu-Nation records clerk' },
+            { coords = vector4(23.24, -1105.29, 29.80, 159.43), label = 'Ammu-Nation records clerk' },
         },
     },
     weaponLicence = {
