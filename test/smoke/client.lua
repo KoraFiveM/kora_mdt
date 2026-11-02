@@ -23,6 +23,12 @@ function _G.RegisterNetEvent(name, callback) if callback then handlers[name] = c
 function _G.RegisterCommand(name, callback) commands[name] = callback end
 function _G.AddEventHandler(name, callback) hooks[name] = callback end
 function _G.CreateThread() end
+local timeouts, trainingZones, pedCoords, removedWeapons = {}, {}, nil, {}
+function _G.SetTimeout(delay, callback) timeouts[#timeouts + 1] = { delay = delay, callback = callback } end
+function _G.PlayerPedId() return 1 end
+function _G.GetEntityCoords() return pedCoords end
+function _G.joaat(name) return name end
+function _G.RemoveWeaponFromPed(ped, weapon) removedWeapons[#removedWeapons + 1] = weapon end
 function _G.GetResourceState(resource) return resource == 'kora_target' and targetState or 'missing' end
 _G.QB = {
     nui = {
@@ -34,6 +40,14 @@ _G.QB = {
         openApp = function(id) openedApp = id end,
     },
     notify = { send = function() end },
+    zones = {
+        poly = function(opts)
+            local zone = { opts = opts, removed = false }
+            zone.remove = function() zone.removed = true end
+            trainingZones[#trainingZones + 1] = zone
+            return zone
+        end,
+    },
     callback = { trigger = function(name)
         local scripted = serverData[name]
         if scripted then return scripted.value, scripted.err end
@@ -283,6 +297,46 @@ h.test('weapon licence result removes every target through kora_lib entities', f
     h.assertEqual(#removed, #Config.mdt.weaponLicence.targetOffsets)
     h.assertEqual(removed[1], 101)
     h.assertEqual(removed[#removed], 103)
+end)
+
+h.test('leaving the range building cancels once through the zone, without a polling thread', function()
+    reset()
+    trainingZones, timeouts, removedWeapons = {}, {}, {}
+    entityFactory = function() return 400 end
+    pedCoords = vector3(Config.mdt.weaponLicence.range.x, Config.mdt.weaponLicence.range.y, Config.mdt.weaponLicence.range.z)
+    handlers['qbmdt:client:weaponLicenceStart'](settings())
+    h.assertEqual(#trainingZones, 1)
+    local zone = trainingZones[1]
+    h.assertEqual(zone.opts.points, Config.mdt.weaponLicence.zone.points)
+    h.assertEqual(zone.opts.thickness, Config.mdt.weaponLicence.zone.thickness)
+    -- The one-shot start check finds the player inside, so nothing is cancelled.
+    h.assertEqual(#timeouts, 1)
+    timeouts[1].callback()
+    h.assertEqual(#serverEvents, 0)
+    zone.opts.onExit(zone)
+    zone.opts.onExit(zone)
+    h.assertEqual(#serverEvents, 1)
+    h.assertEqual(serverEvents[1].name, 'qbmdt:server:cancelWeaponLicence')
+    h.assertEqual(#removedWeapons, 1)
+    h.assertEqual(removedWeapons[1], Config.mdt.weaponLicence.weapon)
+    handlers['qbmdt:client:weaponLicenceResult'](false, 0)
+    h.assertTrue(zone.removed, 'result must remove the range zone')
+end)
+
+h.test('a session that starts outside the building is cancelled by the start check', function()
+    reset()
+    trainingZones, timeouts, removedWeapons = {}, {}, {}
+    entityFactory = function() return 410 end
+    pedCoords = vector3(0.0, 0.0, 0.0)
+    handlers['qbmdt:client:weaponLicenceStart'](settings())
+    timeouts[1].callback()
+    h.assertEqual(#serverEvents, 1)
+    h.assertEqual(serverEvents[1].name, 'qbmdt:server:cancelWeaponLicence')
+    handlers['qbmdt:client:weaponLicenceResult'](false, 0)
+    -- A stale start check or zone exit from the ended session is ignored.
+    timeouts[1].callback()
+    trainingZones[1].opts.onExit(trainingZones[1])
+    h.assertEqual(#serverEvents, 1)
 end)
 
 h.test('failed qualification cancels instead of submitting a result', function()

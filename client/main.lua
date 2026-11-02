@@ -1,6 +1,7 @@
 local C = Config.mdt
 local training, trainingTargets = false, {}
 local trainingWeapon, trainingWatch = nil, 0
+local trainingZone, trainingCancelled = nil, false
 
 local function weaponLicenceZoneHeight()
     local zone, lowest = C.weaponLicence.zone, math.huge
@@ -37,6 +38,23 @@ RegisterCommand(C.command, function()
     if not ok then notify(err or 'The MDT could not be reached.', 'error') end
 end, false)
 
+local function removeTrainingZone()
+    if not trainingZone then return end
+    trainingZone.remove()
+    trainingZone = nil
+end
+
+-- Called when the player is found outside the range building. Remove the
+-- temporary weapon locally at once, then end the server-owned session so its
+-- inventory state is released too. Runs once per session.
+local function cancelTrainingOutsideZone(watch)
+    if not training or trainingWatch ~= watch or trainingCancelled then return end
+    trainingCancelled = true
+    RemoveWeaponFromPed(PlayerPedId(), joaat(trainingWeapon))
+    QB.events.trigger('qbmdt:server:cancelWeaponLicence')
+    notify('You left Ammu-Nation. The range weapon was removed.', 'error')
+end
+
 local function clearTrainingTargets()
     for _, entity in ipairs(trainingTargets) do QB.entities.remove(entity) end
     trainingTargets = {}
@@ -62,18 +80,19 @@ RegisterNetEvent('qbmdt:client:weaponLicenceStart', function(settings)
         QB.events.trigger('qbmdt:server:cancelWeaponLicence')
         return notify('The range targets could not be loaded.', 'error')
     end
-    CreateThread(function()
-        while training and trainingWatch == watch do
-            Wait(500)
-            local position = GetEntityCoords(QB.cache.ped())
-            if not isInsideWeaponLicenceZone(position) then
-                -- Remove the temporary weapon locally at once, then end the
-                -- server-owned session so its inventory state is released too.
-                RemoveWeaponFromPed(QB.cache.ped(), joaat(trainingWeapon))
-                QB.events.trigger('qbmdt:server:cancelWeaponLicence')
-                return notify('You left Ammu-Nation. The range weapon was removed.', 'error')
-            end
-        end
+    -- Edge-triggered instead of polling the player's position: the shared
+    -- kora_lib zone grid reports the exit, and one delayed check covers a
+    -- session that starts while the player is already outside the building.
+    trainingCancelled = false
+    local licenceZone = C.weaponLicence.zone
+    trainingZone = Kora.zones.poly({
+        points = licenceZone.points,
+        thickness = licenceZone.thickness,
+        onExit = function() cancelTrainingOutsideZone(watch) end,
+    })
+    SetTimeout(500, function()
+        if not training or trainingWatch ~= watch then return end
+        if not isInsideWeaponLicenceZone(GetEntityCoords(PlayerPedId())) then cancelTrainingOutsideZone(watch) end
     end)
     notify(('Fire all %d training rounds to complete the live-fire test.'):format(settings.shots))
 end)
@@ -90,6 +109,7 @@ end)
 RegisterNetEvent('qbmdt:client:weaponLicenceResult', function(passed, shots)
     if not training then return end
     clearTrainingTargets()
+    removeTrainingZone()
     training = false
     trainingWatch = trainingWatch + 1
     trainingWeapon = nil
