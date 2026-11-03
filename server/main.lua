@@ -371,7 +371,8 @@ QB.callback.register('qbmdt:server:shopFirearm', function(src, serial)
         for _, counter in ipairs(C.firearms.shopRecords) do if near(src, counter.coords, 2.0) then validCounter = true; break end end
         if not validCounter then return nil, 'speak to the store records clerk' end
     elseif not can(src, 'police') then return nil, 'not authorised' end
-    return QB.sql.single('SELECT `serial`,`weapon_name`,`owner_citizenid`,`licence_number`,`purchased_at` FROM `qbmdt_firearms` WHERE `serial` = ?', { serial })
+    return withTimes(QB.sql.single('SELECT `serial`,`weapon_name`,`owner_citizenid`,`licence_number`,' .. ts('`purchased_at`')
+        .. ' AS `purchased_at` FROM `qbmdt_firearms` WHERE `serial` = ?', { serial }))
 end)
 
 -- Operational MDT data. These callbacks deliberately keep search limits and

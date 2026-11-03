@@ -797,4 +797,22 @@ h.test('report picker options are bounded by operations.reportOptionsLimit', fun
     h.assertTrue(seen:find('LIMIT 25', 1, true) ~= nil, 'limit follows config')
 end)
 
+h.test('store firearm lookup formats purchased_at like other records', function()
+    resetObservations()
+    handle.ensurePlayer(94)
+    local mode = Config.mdt.firearms.lookupMode
+    Config.mdt.firearms.lookupMode = 'mdt'
+    local seen
+    handle.sqlSingle = function(query)
+        if query:find('qbmdt_firearms', 1, true) then
+            seen = query
+            return { serial = 'ABC', purchased_at = { year = 2026, month = 10, day = 31, hour = 22, min = 5 } }
+        end
+    end
+    local row = QB.callback.registry['qbmdt:server:shopFirearm'](94, 'abc')
+    Config.mdt.firearms.lookupMode = mode
+    h.assertEqual(row.purchased_at, '2026-10-31 22:05')
+    h.assertTrue(seen:find('CAST(`purchased_at` AS CHAR)', 1, true) ~= nil, 'timestamp cast to text like other queries')
+end)
+
 h.report('qbmdt server')
