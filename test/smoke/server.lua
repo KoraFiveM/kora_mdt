@@ -831,4 +831,30 @@ h.test('store firearm lookup formats purchased_at like other records', function(
     h.assertTrue(seen:find('CAST(`purchased_at` AS CHAR)', 1, true) ~= nil, 'timestamp cast to text like other queries')
 end)
 
+h.test('audit retention is off by default and sweeps with one daily timer when set', function()
+    resetObservations()
+    handle.event('qbmdt:server:databaseReady')
+    local function sweeps()
+        local n = 0
+        for _, update in ipairs(handle.sqlUpdates) do
+            if update.query:find('DELETE FROM `qbmdt_audit_log`', 1, true) then n = n + 1 end
+        end
+        return n
+    end
+    h.assertEqual(sweeps(), 0, 'auditRetentionDays = 0 keeps everything')
+    h.assertEqual(#handle.timeouts, 0, 'no timer when retention is off')
+    Config.mdt.operations.auditRetentionDays = 30
+    handle.event('qbmdt:server:databaseReady')
+    h.assertEqual(sweeps(), 1)
+    h.assertEqual(handle.sqlUpdates[#handle.sqlUpdates].params[1], 30)
+    h.assertEqual(#handle.timeouts, 1, 'one daily timer')
+    h.assertEqual(handle.timeouts[1].delay, 86400000)
+    handle.event('qbmdt:server:databaseReady')
+    h.assertEqual(#handle.timeouts, 1, 'a restart of the ready event does not stack timers')
+    handle.timeouts[1].callback()
+    h.assertEqual(sweeps(), 3)
+    h.assertEqual(#handle.timeouts, 2, 'the timer re-arms itself')
+    Config.mdt.operations.auditRetentionDays = 0
+end)
+
 h.report('qbmdt server')

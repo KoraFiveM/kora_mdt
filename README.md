@@ -61,6 +61,10 @@ Queries that join `qbmdt_*` columns to external tables such as `players` pin
 retry-safe DDL (CREATE TABLE IF NOT EXISTS / ALTER ... ADD ... IF NOT EXISTS). Run it by hand,
 off-peak, after a backup, if you want the tables aligned.
 
+The audit log (`qbmdt_audit_log`) is kept forever by default. Set
+`Config.mdt.operations.auditRetentionDays` to a number of days to delete older rows when
+the resource starts and once a day after that (deleted in batches of 5000).
+
 ## Tests
 
 Run `./test/run.sh` from this resource. The smoke suite covers role enforcement,

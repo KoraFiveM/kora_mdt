@@ -1,6 +1,7 @@
 local C = Config.mdt
 local training = {}
 local databaseReady = false
+local sweepAuditLog
 local chargeCache = {}
 
 local function player(src) return exports.kora_core:getPlayerData(src) end
@@ -173,6 +174,33 @@ local function hasWeaponLicense(src)
     return data and data.metadata and data.metadata.licences and data.metadata.licences.weapon == true and licenseNumber(data.citizenid) ~= nil
 end
 
+-- Optional audit-log retention (F#3). 0 keeps every row (the default). When set,
+-- rows older than N days are deleted at start and then once a day: one timer, in
+-- batches so a large first sweep never holds a long lock.
+local AUDIT_SWEEP_INTERVAL = 24 * 60 * 60 * 1000
+local AUDIT_SWEEP_BATCH = 5000
+local auditSweepArmed = false
+sweepAuditLog = function()
+    local days = math.floor(tonumber(C.operations.auditRetentionDays) or 0)
+    if days <= 0 then return end
+    for _ = 1, 20 do
+        local removed, err = QB.sql.update(('DELETE FROM `qbmdt_audit_log` WHERE `created_at` < NOW() - INTERVAL ? DAY LIMIT %d')
+            :format(AUDIT_SWEEP_BATCH), { days })
+        if not removed then
+            logError('audit log retention sweep failed', err)
+            break
+        end
+        if (tonumber(removed) or 0) < AUDIT_SWEEP_BATCH then break end
+    end
+    if not auditSweepArmed then
+        auditSweepArmed = true
+        SetTimeout(AUDIT_SWEEP_INTERVAL, function()
+            auditSweepArmed = false
+            sweepAuditLog()
+        end)
+    end
+end
+
 AddEventHandler('qbmdt:server:databaseReady', function()
     for _, charge in ipairs(C.charges or {}) do
         local _, err = QB.sql.execute('INSERT IGNORE INTO `qbmdt_charges` (`code`,`label`,`fine`) VALUES (?,?,?)',
@@ -189,6 +217,7 @@ AddEventHandler('qbmdt:server:databaseReady', function()
     end
     chargeCache = rows
     databaseReady = true
+    sweepAuditLog()
 end)
 
 -- A civilian weapons shop is licence-only. The hook executes before money or
