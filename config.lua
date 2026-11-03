@@ -66,6 +66,7 @@ Config.mdt = {
     operations = {
         searchLimit = 25,
         recentLimit = 50,
+        reportOptionsLimit = 200,       -- newest reports offered in the case "link report" picker (1-5000)
         warrantDefaultDays = 7,
         warrantMaxDays = 30,
         boloDefaultDays = 7,
@@ -158,6 +159,7 @@ if QB and QB.config and QB.config.adopt then
         ['mdt.analysis.stages'] = 'Defines the ordered kora_lib minigames required to analyse ballistic evidence. Each row needs a game name and an opts object; stages run in row order and every successful stage consumes a server-issued one-use proof.',
         ['mdt.operations.searchLimit'] = 'Sets the maximum number of people or vehicle records returned by one MDT search query. Keep this bounded to prevent broad searches from producing oversized database results and UI payloads.',
         ['mdt.operations.recentLimit'] = 'Sets the maximum number of recent cases, warrants, or BOLO records loaded into their MDT lists. This value is inserted into bounded server-owned SQL queries.',
+        ['mdt.operations.reportOptionsLimit'] = 'Sets how many of the newest reports are offered in the case link-report picker, which loads every time police or judges open the MDT. Older reports stay linkable by ID. Clamped to 1-5000.',
         ['mdt.operations.warrantDefaultDays'] = 'Sets the default number of days prefilled when a judge creates a warrant. The submitted duration is clamped between one day and the configured warrant maximum.',
         ['mdt.operations.warrantMaxDays'] = 'Sets the longest warrant duration, in days, that the server will accept. Longer submitted values are reduced to this limit before the warrant is stored.',
         ['mdt.operations.boloDefaultDays'] = 'Sets the default number of days prefilled when an authorised user creates a BOLO. The submitted duration is clamped between one day and the configured BOLO maximum.',

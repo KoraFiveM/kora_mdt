@@ -784,4 +784,17 @@ h.test('report subject: citizen ID, case-insensitive full name, ambiguous and un
     h.assertEqual(err, 'Citizen ID not found. Check the subject citizen ID.', 'an unknown ID is an error, never swapped for the creator')
 end)
 
+h.test('report picker options are bounded by operations.reportOptionsLimit', function()
+    resetObservations()
+    handle.ensurePlayer(94)
+    local seen
+    handle.sqlQuery = function(query) seen = query; return {} end
+    QB.callback.registry['qbmdt:server:reportOptions'](94)
+    h.assertTrue(seen:find('LIMIT 200', 1, true) ~= nil, 'default limit is 200')
+    Config.mdt.operations.reportOptionsLimit = 25
+    QB.callback.registry['qbmdt:server:reportOptions'](94)
+    Config.mdt.operations.reportOptionsLimit = 200
+    h.assertTrue(seen:find('LIMIT 25', 1, true) ~= nil, 'limit follows config')
+end)
+
 h.report('qbmdt server')

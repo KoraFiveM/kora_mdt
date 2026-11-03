@@ -93,6 +93,11 @@ local function formatTime(value)
         return ('%02d'):format(tonumber(parts[token]) or 0)
     end))
 end
+-- Newest N reports offered in the case-link picker (F#0). Linking by id is unaffected.
+local function reportOptionsLimit()
+    local limit = math.floor(tonumber(C.operations.reportOptionsLimit) or 200)
+    return math.max(1, math.min(limit, 5000))
+end
 local function withTimes(data)
     if type(data) ~= 'table' then return data end
     for key, value in pairs(data) do
@@ -422,11 +427,11 @@ end)
 
 QB.callback.register('qbmdt:server:reportOptions', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    return listQuery('report options', [[SELECT r.`id`,r.`title`,
+    return listQuery('report options', ([[SELECT r.`id`,r.`title`,
         COALESCE(p.`name`,r.`subject_citizenid`,r.`subject_text`,'Unknown') AS `subject`
         FROM `qbmdt_reports` r
         LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
-        ORDER BY r.`created_at` DESC,r.`id` DESC]])
+        ORDER BY r.`created_at` DESC,r.`id` DESC LIMIT %d]]):format(reportOptionsLimit()))
 end)
 
 QB.callback.register('qbmdt:server:report', function(src, value)
