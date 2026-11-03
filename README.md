@@ -52,14 +52,12 @@ event; hiding a page in the client is never treated as authorization.
 
 ## Database
 
-Migrations run automatically through kora_sql when the resource starts. Version 2
-adds reports, cases, warrants, BOLOs, report-to-case links, and the audit log.
+The schema is declared in `server/schema.lua` (`QBMdtSchema`) and applied on start through
+`Kora.sql.ensureTables`, which only adds what is missing.
 Queries that join `qbmdt_*` columns to external tables such as `players` pin
 `COLLATE utf8mb4_unicode_ci` on both sides, so they work whatever collation the tables have.
-`sql/003_collation.sql` is an optional, manual migration that converts all `qbmdt_*` tables to
-`utf8mb4_unicode_ci`. It is not registered in `server/migrate.lua`, because kora_sql only accepts
-retry-safe DDL (CREATE TABLE IF NOT EXISTS / ALTER ... ADD ... IF NOT EXISTS). Run it by hand,
-off-peak, after a backup, if you want the tables aligned.
+Tables created before they declared `utf8mb4_unicode_ci` are converted once on start (guarded by
+`information_schema`, a no-op when already aligned).
 
 ## Tests
 

@@ -81,27 +81,30 @@ h.test('every qbmdt_* to external-table comparison in server SQL pins the collat
     h.assertTrue(checked >= 5, 'expected to audit the report/warrant/case joins against players, saw ' .. checked)
 end)
 
--- 001/002 must stay byte-identical: kora_sql hard-aborts on a checksum change
--- to an already-applied migration, which would stop the MDT from starting.
-h.test('001/002 are not touched (checksum safety)', function()
-    for _, path in ipairs({ 'sql/001_records.sql', 'sql/002_operations.sql' }) do
-        h.assertTrue(read(path):find('utf8mb4_unicode_ci', 1, true) == nil, path .. ' was edited; applied migration checksums would mismatch')
+h.test('schema declares every qbmdt_* table with the unicode collation', function()
+    _G.Kora = _G.Kora or { sql = { NULL = '\0qbsql:null\0' } }
+    dofile('server/schema.lua')
+    h.assertTrue(#QBMdtSchema >= 11, 'expected the qbmdt tables in QBMdtSchema')
+    local names = {}
+    for _, spec in ipairs(QBMdtSchema) do
+        names[spec.name] = true
+        h.assertEqual(spec.collate, COLLATION, spec.name .. ' must declare ' .. COLLATION)
+        h.assertTrue(spec.primary ~= nil, spec.name .. ' needs a primary key')
+    end
+    for _, name in ipairs({ 'qbmdt_licences', 'qbmdt_firearms', 'qbmdt_charges', 'qbmdt_criminal_records',
+        'qbmdt_medical_records', 'qbmdt_reports', 'qbmdt_cases', 'qbmdt_case_reports', 'qbmdt_warrants',
+        'qbmdt_bolos', 'qbmdt_audit_log' }) do
+        h.assertTrue(names[name], 'schema is missing ' .. name)
     end
 end)
 
-h.test('003 converts every qbmdt_* table and is NOT auto-registered', function()
-    local created = {}
-    for _, path in ipairs({ 'sql/001_records.sql', 'sql/002_operations.sql' }) do
-        for name in read(path):gmatch('CREATE TABLE IF NOT EXISTS `([%w_]+)`') do created[#created + 1] = name end
-    end
-    h.assertTrue(#created >= 11, 'expected the qbmdt tables from 001/002')
-    local migration = read('sql/003_collation.sql')
-    for _, name in ipairs(created) do
-        h.assertTrue(migration:find('ALTER TABLE `' .. name .. '` CONVERT TO CHARACTER SET utf8mb4 COLLATE ' .. COLLATION .. ';', 1, true) ~= nil,
-            '003 does not convert ' .. name)
-    end
-    h.assertTrue(read('server/migrate.lua'):find('003_collation', 1, true) == nil,
-        'kora_sql rejects CONVERT TO as a non retry-safe DDL migration; 003 is a manual migration')
+h.test('startup applies the schema and converts mismatched tables instead of running sql files', function()
+    local source = read('server/migrate.lua')
+    h.assertTrue(source:find('ensureTables(QBMdtSchema)', 1, true) ~= nil, 'migrate.lua must call ensureTables')
+    h.assertTrue(source:find('CONVERT TO CHARACTER SET utf8mb4 COLLATE', 1, true) ~= nil, 'collation alignment must be kept')
+    h.assertTrue(source:find('information_schema', 1, true) ~= nil, 'collation alignment must be guarded')
+    h.assertTrue(source:find('migrateFiles', 1, true) == nil, 'sql file migrations were replaced by the schema')
+    h.assertTrue(read('fxmanifest.lua'):find("'server/schema.lua', 'server/migrate.lua'", 1, true) ~= nil, 'schema must load before migrate.lua')
 end)
 
 h.report('qbmdt collation')
