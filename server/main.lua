@@ -933,10 +933,13 @@ AddEventHandler('qbinventory:server:trainingRoundFired', function(src, round)
     if not stillEligible(src, state) then return finishTraining(src, state, false) end
 
     state.shots = round.shot
-    -- The range test is the live-fire exercise.  Once every issued training
-    -- round has been fired, finish it immediately instead of making a target
-    -- hit look like a failure because of a separate handling minigame.
-    if state.shots >= C.weaponLicence.shots then finishTraining(src, state, true) end
+    -- By default the range test is the live-fire exercise alone: once every
+    -- issued round has been fired it finishes. weaponLicence.qualification.enabled
+    -- adds the handling minigame as a final step (F#1).
+    if state.shots >= C.weaponLicence.shots then
+        if C.weaponLicence.qualification.enabled then return beginQualification(src, state) end
+        finishTraining(src, state, true)
+    end
 end)
 
 QB.events.register('qbmdt:server:completeWeaponLicence', function(src, proof)

@@ -47,6 +47,7 @@ Config.mdt = {
         shots = 10,
         trainingTimeout = 120000,
         qualification = {
+            enabled = false,            -- true = after the last round, pass this minigame to get the licence
             game = 'skillbar',
             opts = { attempts = 1, zoneSize = 0.14, timeLimit = 8000 },
         },
@@ -150,6 +151,7 @@ if QB and QB.config and QB.config.adopt then
         ['mdt.weaponLicence.interactionDistance'] = 'Sets how close a player must be to the range interaction zone to begin a weapon-licence session. The same distance is used by both the target prompt and the server-side proximity check.',
         ['mdt.weaponLicence.shots'] = 'Sets the number of temporary training rounds issued and the number of sequential shots required to complete the live-fire portion of a weapon-licence session.',
         ['mdt.weaponLicence.trainingTimeout'] = 'Sets the maximum duration of a weapon-licence range session in milliseconds. When this timer expires, the server ends the session and removes the temporary training weapon.',
+        ['mdt.weaponLicence.qualification.enabled'] = 'When enabled, firing every training round is followed by the qualification minigame below, and the licence is only issued if it is passed. When disabled the live-fire test alone issues the licence.',
         ['mdt.weaponLicence.qualification.game'] = 'Selects the kora_lib minigame used for the weapon-licence qualification step. The name must match a registered kora_lib minigame accepted by both proof authorisation and the client player.',
         ['mdt.weaponLicence.qualification.opts.attempts'] = 'Sets how many attempts the configured weapon-licence qualification minigame permits before it returns a failed result.',
         ['mdt.weaponLicence.qualification.opts.zoneSize'] = 'Sets the success-zone size passed to the weapon-licence skillbar minigame. Smaller values make the qualification timing window more difficult.',

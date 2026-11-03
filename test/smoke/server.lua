@@ -487,6 +487,22 @@ h.test('completing every issued training round issues a licence once', function(
     h.assertEqual(handle.sqlWrites, 1, 'replayed rounds cannot issue a second licence')
 end)
 
+h.test('qualification.enabled adds the minigame step before the licence', function()
+    resetObservations()
+    Config.mdt.weaponLicence.qualification.enabled = true
+    start(21)
+    fireRounds(21, 1, Config.mdt.weaponLicence.shots)
+    h.assertEqual(handle.sqlWrites, 0, 'no licence before the qualification')
+    local authorization = latestAuthorization(21)
+    h.assertTrue(authorization ~= nil, 'qualification proof authorised')
+    h.assertEqual(authorization.game, Config.mdt.weaponLicence.qualification.game)
+    h.assertEqual(#handle.eventsNamed('qbmdt:client:weaponLicenceQualification', 21), 1)
+    handle.net('qbmdt:server:completeWeaponLicence', 21, handle.issueProof(21, authorization.game, authorization.token))
+    Config.mdt.weaponLicence.qualification.enabled = false
+    h.assertEqual(handle.sqlWrites, 1, 'passing the qualification issues the licence')
+    h.assertEqual(handle.eventsNamed('qbmdt:client:weaponLicenceResult', 21)[1].args[1], true)
+end)
+
 h.test('licence completion reports metadata failure', function()
     resetObservations()
     start(30)
