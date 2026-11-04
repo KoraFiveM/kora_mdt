@@ -45,7 +45,7 @@ event; hiding a page in the client is never treated as authorization.
   Titles, citizen IDs / plates and the criminal-record charge are always required.
 - `Config.mdt.reports.requireSubject` / `requireCharge` still work as aliases: if either the alias or the matching `requiredFields.report` entry is `true`, the field is required.
 - Report subject and charge: `Config.mdt.reports.resolveSubjectByName` (default `true`) links a subject typed as an exact full name to that citizen when exactly one matches; `allowUnknownSubject` (default `true`) otherwise stores it as unlinked text, or rejects it with "Subject must be a citizen ID" when `false`; `allowCustomCharges` (default `true`) stores a charge outside the catalogue as text on the report (no criminal record is created), or rejects it when `false`. A mistyped citizen ID (contains a digit) is always rejected as not found.
-- BOLOs show the subject exactly as typed (`qbmdt_bolos.subject_text`). A Person subject that is an existing citizen ID or an exact, unique full name is also linked to that citizen (`subject_identifier`), so the BOLO appears on their profile; the link is never added to the Subject text (`Config.mdt.bolo.resolvePersonByName`, `allowUnknownPersonSubject`, `showLinkedCitizen` shows the link as a separate detail row). BOLOs saved before version 5 drop the old ` (CID)` suffix and show the linked citizen's name instead of a bare citizen ID. The version 4 migration adds `subject_text`, `charge_text` (reports) and `subject_label` (BOLOs, legacy).
+- BOLOs show the subject exactly as typed (`kora_mdt_bolos.subject_text`). A Person subject that is an existing citizen ID or an exact, unique full name is also linked to that citizen (`subject_identifier`), so the BOLO appears on their profile; the link is never added to the Subject text (`Config.mdt.bolo.resolvePersonByName`, `allowUnknownPersonSubject`, `showLinkedCitizen` shows the link as a separate detail row). BOLOs saved before version 5 drop the old ` (CID)` suffix and show the linked citizen's name instead of a bare citizen ID. The version 4 migration adds `subject_text`, `charge_text` (reports) and `subject_label` (BOLOs, legacy).
 - `Config.mdt.dateFormat` (default `YYYY-MM-DD HH:mm`; tokens `YYYY MM DD HH mm ss`) controls every date/time shown in the terminal.
 - Every date column (any key ending in `_at`, plus `date`/`timestamp`) is formatted on the server whether the database layer returns a millisecond/second number, a string or a table; an unreadable value is dropped, never shown as `table: 0x...`.
 - If a list (reports, cases, warrants, BOLOs, dashboard) cannot be loaded, the terminal shows the specific error instead of an empty table and the server console logs it with a `[kora_mdt]` prefix. Creating or closing a report, case, warrant or BOLO refreshes its list and the dashboard in the same response, and Refresh buttons confirm with a notice.
@@ -54,7 +54,7 @@ event; hiding a page in the client is never treated as authorization.
 
 The schema is declared in `server/schema.lua` (`QBMdtSchema`) and applied on start through
 `Kora.sql.ensureTables`, which only adds what is missing.
-Queries that join `qbmdt_*` columns to external tables such as `players` pin
+Queries that join `kora_mdt_*` columns to external tables such as `players` pin
 `COLLATE utf8mb4_unicode_ci` on both sides, so they work whatever collation the tables have.
 Tables created before they declared `utf8mb4_unicode_ci` are converted once on start (guarded by
 `information_schema`, a no-op when already aligned).

@@ -1,6 +1,6 @@
--- Guards against "Illegal mix of collations": qbmdt_* tables must be
+-- Guards against "Illegal mix of collations": kora_mdt_* tables must be
 -- utf8mb4_unicode_ci (like kora_core's players table) and any join/compare
--- between a qbmdt_* column and an external table must pin COLLATE on both sides.
+-- between a kora_mdt_* column and an external table must pin COLLATE on both sides.
 local h = dofile('test/harness.lua')
 
 local COLLATION = 'utf8mb4_unicode_ci'
@@ -25,7 +25,7 @@ end
 
 local function audit(sql)
     local problems = {}
-    if not sql:find('qbmdt_', 1, true) then return problems end
+    if not sql:find('kora_mdt_', 1, true) then return problems end
     local tables = {}
     for _, keyword in ipairs({ 'FROM', 'JOIN' }) do
         for name, alias in sql:gmatch(keyword .. '%s+`([%w_]+)`%s+(%a%w*)') do
@@ -37,7 +37,7 @@ local function audit(sql)
     end
     local hasInternal, hasExternal = false, false
     for _, name in pairs(tables) do
-        if name:find('^qbmdt_') then hasInternal = true else hasExternal = true end
+        if name:find('^kora_mdt_') then hasInternal = true else hasExternal = true end
     end
     if not (hasInternal and hasExternal) then return problems end
 
@@ -48,7 +48,7 @@ local function audit(sql)
     local operandB = '(%a%w*)%.`([%w_]+)`([%w_ ]*)'
     for a, ac, atail, b, bc, btail in sql:gmatch(operand .. '=%s*' .. operandB) do
         local ta, tb = tables[a], tables[b]
-        if ta and tb and (ta:find('^qbmdt_') ~= nil) ~= (tb:find('^qbmdt_') ~= nil) then
+        if ta and tb and (ta:find('^kora_mdt_') ~= nil) ~= (tb:find('^kora_mdt_') ~= nil) then
             local function pinned(tail) return tail:upper():find('^%s*COLLATE%s+' .. COLLATION:upper()) ~= nil end
             if not (pinned(atail) and pinned(btail)) then
                 problems[#problems + 1] = ('%s.%s = %s.%s lacks COLLATE %s on both sides'):format(ta, ac, tb, bc, COLLATION)
@@ -59,21 +59,21 @@ local function audit(sql)
 end
 
 h.test('collation audit detects unpinned and accepts pinned qbmdt/external joins', function()
-    local bad = 'SELECT 1 FROM `qbmdt_reports` r LEFT JOIN `players` p ON p.`citizenid` = r.`subject_citizenid`'
+    local bad = 'SELECT 1 FROM `kora_mdt_reports` r LEFT JOIN `players` p ON p.`citizenid` = r.`subject_citizenid`'
     h.assertEqual(#audit(bad), 1)
-    local oneSide = 'SELECT 1 FROM `qbmdt_reports` r LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid`'
+    local oneSide = 'SELECT 1 FROM `kora_mdt_reports` r LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid`'
     h.assertEqual(#audit(oneSide), 1)
-    local good = 'SELECT 1 FROM `qbmdt_reports` r LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci'
+    local good = 'SELECT 1 FROM `kora_mdt_reports` r LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci'
     h.assertEqual(#audit(good), 0)
-    local internal = 'SELECT 1 FROM `qbmdt_reports` r LEFT JOIN `qbmdt_charges` c ON c.`code` = r.`charge_code`'
+    local internal = 'SELECT 1 FROM `kora_mdt_reports` r LEFT JOIN `kora_mdt_charges` c ON c.`code` = r.`charge_code`'
     h.assertEqual(#audit(internal), 0)
 end)
 
-h.test('every qbmdt_* to external-table comparison in server SQL pins the collation on both sides', function()
+h.test('every kora_mdt_* to external-table comparison in server SQL pins the collation on both sides', function()
     local checked = 0
     for _, path in ipairs({ 'server/main.lua', 'server/boot.lua' }) do
         for _, sql in ipairs(sqlStrings(read(path))) do
-            if sql:find('`players`', 1, true) and sql:find('qbmdt_', 1, true) then checked = checked + 1 end
+            if sql:find('`players`', 1, true) and sql:find('kora_mdt_', 1, true) then checked = checked + 1 end
             local problems = audit(sql)
             h.assertEqual(#problems, 0, path .. ': ' .. (problems[1] or '') .. ' in: ' .. sql:gsub('%s+', ' '):sub(1, 90))
         end
@@ -81,7 +81,7 @@ h.test('every qbmdt_* to external-table comparison in server SQL pins the collat
     h.assertTrue(checked >= 5, 'expected to audit the report/warrant/case joins against players, saw ' .. checked)
 end)
 
-h.test('schema declares every qbmdt_* table with the unicode collation', function()
+h.test('schema declares every kora_mdt_* table with the unicode collation', function()
     _G.Kora = _G.Kora or { sql = { NULL = '\0qbsql:null\0' } }
     dofile('server/schema.lua')
     h.assertTrue(#QBMdtSchema >= 11, 'expected the qbmdt tables in QBMdtSchema')
@@ -91,9 +91,9 @@ h.test('schema declares every qbmdt_* table with the unicode collation', functio
         h.assertEqual(spec.collate, COLLATION, spec.name .. ' must declare ' .. COLLATION)
         h.assertTrue(spec.primary ~= nil, spec.name .. ' needs a primary key')
     end
-    for _, name in ipairs({ 'qbmdt_licences', 'qbmdt_firearms', 'qbmdt_charges', 'qbmdt_criminal_records',
-        'qbmdt_medical_records', 'qbmdt_reports', 'qbmdt_cases', 'qbmdt_case_reports', 'qbmdt_warrants',
-        'qbmdt_bolos', 'qbmdt_audit_log' }) do
+    for _, name in ipairs({ 'kora_mdt_licences', 'kora_mdt_firearms', 'kora_mdt_charges', 'kora_mdt_criminal_records',
+        'kora_mdt_medical_records', 'kora_mdt_reports', 'kora_mdt_cases', 'kora_mdt_case_reports', 'kora_mdt_warrants',
+        'kora_mdt_bolos', 'kora_mdt_audit_log' }) do
         h.assertTrue(names[name], 'schema is missing ' .. name)
     end
 end)

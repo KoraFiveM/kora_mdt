@@ -128,9 +128,9 @@ h.test('incident reports validate server records, create charge history, and aud
     id, err = create(94, { title = 'Traffic stop', narrative = 'Vehicle failed to stop.', citizenid = 'CID000777', charge = 'spd-01' })
     h.assertEqual(id, 1)
     h.assertEqual(handle.sqlInserts[1].params[5], 'SPD-01')
-    h.assertTrue(handle.sqlInserts[2].query:find('qbmdt_criminal_records', 1, true) ~= nil,
+    h.assertTrue(handle.sqlInserts[2].query:find('kora_mdt_criminal_records', 1, true) ~= nil,
         'charged report must be reflected in criminal history')
-    h.assertTrue(handle.sqlInserts[3].query:find('qbmdt_audit_log', 1, true) ~= nil,
+    h.assertTrue(handle.sqlInserts[3].query:find('kora_mdt_audit_log', 1, true) ~= nil,
         'report creation must be audited')
 end)
 
@@ -165,7 +165,7 @@ h.test('requiredFields config drives every create form with specific errors', fu
     readyMdt()
     handle.sqlSingle = function(query, params)
         if query:find('FROM `players`', 1, true) then return { citizenid = params[1] } end
-        if query:find('qbmdt_charges', 1, true) then return { code = 'SPD-01' } end
+        if query:find('kora_mdt_charges', 1, true) then return { code = 'SPD-01' } end
     end
     local reg = QB.callback.registry
     local fields = Config.mdt.requiredFields
@@ -318,7 +318,7 @@ h.test('report creation succeeds for empty, citizen ID, name and free-text subje
     h.assertEqual(id, nil)
     h.assertTrue(err:find('"Trespassing" is not in the charge list', 1, true) ~= nil)
 
-    handle.sqlInsertError = { match = 'qbmdt_reports', message = 'boom' }
+    handle.sqlInsertError = { match = 'kora_mdt_reports', message = 'boom' }
     id, err = report({})
     h.assertEqual(id, nil)
     h.assertTrue(err:find('database error', 1, true) ~= nil, 'a failed insert returns a specific message')
@@ -679,9 +679,9 @@ h.test('person profile times (warrants, BOLOs, reports, records) are strings', f
         if query:find('FROM `players`', 1, true) then return { citizenid = 'ABC12345', name = 'Jane Doe', charinfo = '{}', metadata = '{}', job = '{}' } end
     end
     handle.sqlQuery = function(query)
-        if query:find('qbmdt_warrants', 1, true) then return { { id = 1, reason = 'r', expires_at = when } } end
-        if query:find('qbmdt_bolos', 1, true) then return { { id = 1, title = 't', expires_at = 1793484969000 } } end
-        if query:find('qbmdt_reports', 1, true) then return { { id = 1, title = 't', status = 'open', created_at = when } } end
+        if query:find('kora_mdt_warrants', 1, true) then return { { id = 1, reason = 'r', expires_at = when } } end
+        if query:find('kora_mdt_bolos', 1, true) then return { { id = 1, title = 't', expires_at = 1793484969000 } } end
+        if query:find('kora_mdt_reports', 1, true) then return { { id = 1, title = 't', status = 'open', created_at = when } } end
         return { { created_at = when, purchased_at = when } }
     end
     local out = QB.callback.registry['qbmdt:server:person'](94, 'ABC12345')

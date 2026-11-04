@@ -149,7 +149,7 @@ function M.install()
             NULL = '\0qbsql:null\0',
             single = function(query, params)
                 if handle.sqlSingle then return handle.sqlSingle(query, params) end
-                if query:find('qbmdt_licences', 1, true) then
+                if query:find('kora_mdt_licences', 1, true) then
                     local number = handle.licenceRows[params[1]]
                     return number and { licence_number = number } or nil
                 end
@@ -160,7 +160,7 @@ function M.install()
                 return {}
             end,
             execute = function(query, params)
-                if query:find('qbmdt_licences', 1, true) then
+                if query:find('kora_mdt_licences', 1, true) then
                     handle.sqlWrites = handle.sqlWrites + 1
                     if handle.onLicenceWrite then handle.onLicenceWrite(params) end
                     handle.licenceRows[params[1]] = params[3]

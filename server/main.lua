@@ -114,7 +114,7 @@ end
 local function audit(src, action, targetType, targetId, details)
     local actor = citizenId(src)
     if not actor then return end
-    QB.sql.insert([[INSERT INTO `qbmdt_audit_log`
+    QB.sql.insert([[INSERT INTO `kora_mdt_audit_log`
         (`actor_citizenid`,`action`,`target_type`,`target_id`,`details`) VALUES (?,?,?,?,?)]],
         { actor, action, targetType, tostring(targetId), cleanText(details, 1000, false) })
 end
@@ -160,7 +160,7 @@ local function nearWeaponLicenceZone(src, padding)
     return ped and ped ~= 0 and pointInWeaponLicenceZone(GetEntityCoords(ped), padding)
 end
 local function licenseNumber(cid)
-    local row = QB.sql.single('SELECT `licence_number` FROM `qbmdt_licences` WHERE `citizenid` = ? AND `licence_type` = ?', { cid, 'weapon' })
+    local row = QB.sql.single('SELECT `licence_number` FROM `kora_mdt_licences` WHERE `citizenid` = ? AND `licence_type` = ?', { cid, 'weapon' })
     return row and row.licence_number or nil
 end
 local function hasWeaponLicense(src)
@@ -170,14 +170,14 @@ end
 
 AddEventHandler('qbmdt:server:databaseReady', function()
     for _, charge in ipairs(C.charges or {}) do
-        local _, err = QB.sql.execute('INSERT IGNORE INTO `qbmdt_charges` (`code`,`label`,`fine`) VALUES (?,?,?)',
+        local _, err = QB.sql.execute('INSERT IGNORE INTO `kora_mdt_charges` (`code`,`label`,`fine`) VALUES (?,?,?)',
             { charge.code, charge.label, math.max(0, math.floor(tonumber(charge.fine) or 0)) })
         if err then
             print(('^1[qbmdt]^7 charge seed failed for %s: %s'):format(charge.code, tostring(err)))
             return
         end
     end
-    local rows, err = QB.sql.query('SELECT `code`,`label`,`fine` FROM `qbmdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`')
+    local rows, err = QB.sql.query('SELECT `code`,`label`,`fine` FROM `kora_mdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`')
     if not rows then
         print(('^1[qbmdt]^7 charge cache load failed: %s'):format(tostring(err or 'database query failed')))
         return
@@ -206,7 +206,7 @@ AddEventHandler('qbinventory:server:itemPurchased', function(src, purchase)
     local licence = cid and licenseNumber(cid)
     if not cid or type(serial) ~= 'string' or not licence then return end
     CreateThread(function()
-        local _, err = QB.sql.execute([[INSERT INTO `qbmdt_firearms`
+        local _, err = QB.sql.execute([[INSERT INTO `kora_mdt_firearms`
             (`serial`,`weapon_name`,`owner_citizenid`,`licence_number`,`shop_id`) VALUES (?,?,?,?,?)
             ON DUPLICATE KEY UPDATE `owner_citizenid` = VALUES(`owner_citizenid`), `licence_number` = VALUES(`licence_number`)]],
             { serial, purchase.itemName, cid, licence, C.firearms.shopId })
@@ -235,18 +235,18 @@ QB.callback.register('qbmdt:server:person', function(src, wanted)
     }
     if r == 'police' or r == 'judge' then
         out.weaponLicence = licenseNumber(wanted)
-        out.firearms = QB.sql.query('SELECT `serial`,`weapon_name`,' .. ts('`purchased_at`') .. ' AS `purchased_at` FROM `qbmdt_firearms` WHERE `owner_citizenid` = ? ORDER BY `purchased_at` DESC', { wanted }) or {}
-        out.criminal = QB.sql.query('SELECT `charge_code`,`notes`,' .. ts('`created_at`') .. ' AS `created_at` FROM `qbmdt_criminal_records` WHERE `citizenid` = ? ORDER BY `created_at` DESC', { wanted }) or {}
-        out.reports = QB.sql.query([[SELECT `id`,`title`,`status`,]] .. ts('`created_at`') .. [[ AS `created_at` FROM `qbmdt_reports`
+        out.firearms = QB.sql.query('SELECT `serial`,`weapon_name`,' .. ts('`purchased_at`') .. ' AS `purchased_at` FROM `kora_mdt_firearms` WHERE `owner_citizenid` = ? ORDER BY `purchased_at` DESC', { wanted }) or {}
+        out.criminal = QB.sql.query('SELECT `charge_code`,`notes`,' .. ts('`created_at`') .. ' AS `created_at` FROM `kora_mdt_criminal_records` WHERE `citizenid` = ? ORDER BY `created_at` DESC', { wanted }) or {}
+        out.reports = QB.sql.query([[SELECT `id`,`title`,`status`,]] .. ts('`created_at`') .. [[ AS `created_at` FROM `kora_mdt_reports`
             WHERE `subject_citizenid` = ? ORDER BY `created_at` DESC LIMIT 25]], { wanted }) or {}
-        out.warrants = QB.sql.query([[SELECT `id`,`reason`,`expires_at` FROM `qbmdt_warrants`
+        out.warrants = QB.sql.query([[SELECT `id`,`reason`,`expires_at` FROM `kora_mdt_warrants`
             WHERE `citizenid` = ? AND `status` = 'active' AND `expires_at` > NOW() ORDER BY `expires_at`]], { wanted }) or {}
-        out.bolos = QB.sql.query([[SELECT `id`,`title`,`description`,`expires_at` FROM `qbmdt_bolos`
+        out.bolos = QB.sql.query([[SELECT `id`,`title`,`description`,`expires_at` FROM `kora_mdt_bolos`
             WHERE `subject_type` = 'person' AND `subject_identifier` = ? AND `status` = 'active'
             AND (`expires_at` IS NULL OR `expires_at` > NOW()) ORDER BY `created_at` DESC]], { wanted }) or {}
     end
     if r == 'medical' or r == 'judge' then
-        out.medical = QB.sql.query('SELECT `notes`,' .. ts('`created_at`') .. ' AS `created_at` FROM `qbmdt_medical_records` WHERE `citizenid` = ? ORDER BY `created_at` DESC', { wanted }) or {}
+        out.medical = QB.sql.query('SELECT `notes`,' .. ts('`created_at`') .. ' AS `created_at` FROM `kora_mdt_medical_records` WHERE `citizenid` = ? ORDER BY `created_at` DESC', { wanted }) or {}
     end
     return withTimes(out)
 end)
@@ -259,7 +259,7 @@ QB.callback.register('qbmdt:server:vehicle', function(src, plate)
         FROM `player_vehicles` v LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = v.`citizenid` COLLATE utf8mb4_unicode_ci
         WHERE v.`plate` = ? AND v.`deleted_at` IS NULL]], { plate })
     if vehicle then
-        vehicle.bolos = QB.sql.query([[SELECT `id`,`title`,`description`,`expires_at` FROM `qbmdt_bolos`
+        vehicle.bolos = QB.sql.query([[SELECT `id`,`title`,`description`,`expires_at` FROM `kora_mdt_bolos`
             WHERE `subject_type` = 'vehicle' AND `subject_identifier` = ? AND `status` = 'active'
             AND (`expires_at` IS NULL OR `expires_at` > NOW()) ORDER BY `created_at` DESC]], { plate }) or {}
     end
@@ -279,7 +279,7 @@ end)
 QB.callback.register('qbmdt:server:manageCharges', function(src)
     if not isPoliceBoss(src) then return nil, 'not authorised' end
     if not databaseReady then return nil, 'MDT database is still starting. Try again shortly.' end
-    return QB.sql.query('SELECT `code`,`label`,`fine`,`active` FROM `qbmdt_charges` ORDER BY `label`,`code`')
+    return QB.sql.query('SELECT `code`,`label`,`fine`,`active` FROM `kora_mdt_charges` ORDER BY `label`,`code`')
 end)
 
 QB.callback.register('qbmdt:server:createCharge', function(src, input)
@@ -292,10 +292,10 @@ QB.callback.register('qbmdt:server:createCharge', function(src, input)
         return false, 'enter a valid code, label, and non-negative fine'
     end
     code = code:upper()
-    local _, err = QB.sql.execute('INSERT INTO `qbmdt_charges` (`code`,`label`,`fine`,`active`) VALUES (?,?,?,1)',
+    local _, err = QB.sql.execute('INSERT INTO `kora_mdt_charges` (`code`,`label`,`fine`,`active`) VALUES (?,?,?,1)',
         { code, label, math.floor(fine) })
     if err then return false, 'could not save charge (the code may already exist)' end
-    chargeCache = QB.sql.query('SELECT `code`,`label`,`fine` FROM `qbmdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`') or chargeCache
+    chargeCache = QB.sql.query('SELECT `code`,`label`,`fine` FROM `kora_mdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`') or chargeCache
     audit(src, 'charge.create', 'charge', code, label)
     return true
 end)
@@ -310,13 +310,13 @@ QB.callback.register('qbmdt:server:updateCharge', function(src, code, label, fin
         return false, 'enter a valid charge name and non-negative fine'
     end
     code = code:upper()
-    if not QB.sql.single('SELECT `code` FROM `qbmdt_charges` WHERE `code` = ?', { code }) then
+    if not QB.sql.single('SELECT `code` FROM `kora_mdt_charges` WHERE `code` = ?', { code }) then
         return false, 'charge not found'
     end
-    local updated, err = QB.sql.execute('UPDATE `qbmdt_charges` SET `label` = ?, `fine` = ? WHERE `code` = ?',
+    local updated, err = QB.sql.execute('UPDATE `kora_mdt_charges` SET `label` = ?, `fine` = ? WHERE `code` = ?',
         { label, math.floor(fine), code })
     if err or updated == false then return false, err or 'could not update charge' end
-    chargeCache = QB.sql.query('SELECT `code`,`label`,`fine` FROM `qbmdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`') or chargeCache
+    chargeCache = QB.sql.query('SELECT `code`,`label`,`fine` FROM `kora_mdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`') or chargeCache
     audit(src, 'charge.update', 'charge', code, label)
     return true
 end)
@@ -331,11 +331,11 @@ QB.callback.register('qbmdt:server:addCriminal', function(src, wanted, code, not
         { citizenid = wanted, charge = selection, notes = notes })
     if missing then return false, missing end
     if not author then return false, 'author unavailable' end
-    local charge = QB.sql.single('SELECT `code` FROM `qbmdt_charges` WHERE `active` = 1 AND (`code` = ? OR `label` = ?)',
+    local charge = QB.sql.single('SELECT `code` FROM `kora_mdt_charges` WHERE `active` = 1 AND (`code` = ? OR `label` = ?)',
         { selection:upper(), selection })
     if not charge then return false, 'unknown charge' end
     if not personExists(wanted) then return false, 'citizen not found' end
-    local written, err = QB.sql.execute('INSERT INTO `qbmdt_criminal_records` (`citizenid`,`charge_code`,`notes`,`author_citizenid`) VALUES (?,?,?,?)',
+    local written, err = QB.sql.execute('INSERT INTO `kora_mdt_criminal_records` (`citizenid`,`charge_code`,`notes`,`author_citizenid`) VALUES (?,?,?,?)',
         { wanted, charge.code, notes, author })
     if not written then return false, err or 'database error' end
     audit(src, 'criminal.create', 'citizen', wanted, code)
@@ -351,7 +351,7 @@ QB.callback.register('qbmdt:server:addMedical', function(src, wanted, notes)
     if missing then return false, missing end
     if not author then return false, 'author unavailable' end
     if not personExists(wanted) then return false, 'citizen not found' end
-    local written, err = QB.sql.execute('INSERT INTO `qbmdt_medical_records` (`citizenid`,`notes`,`author_citizenid`) VALUES (?,?,?)',
+    local written, err = QB.sql.execute('INSERT INTO `kora_mdt_medical_records` (`citizenid`,`notes`,`author_citizenid`) VALUES (?,?,?)',
         { wanted, notes, author })
     if not written then return false, err or 'database error' end
     audit(src, 'medical.create', 'citizen', wanted)
@@ -366,7 +366,7 @@ QB.callback.register('qbmdt:server:shopFirearm', function(src, serial)
         for _, counter in ipairs(C.firearms.shopRecords) do if near(src, counter.coords, 2.0) then validCounter = true; break end end
         if not validCounter then return nil, 'speak to the store records clerk' end
     elseif not can(src, 'police') then return nil, 'not authorised' end
-    return QB.sql.single('SELECT `serial`,`weapon_name`,`owner_citizenid`,`licence_number`,`purchased_at` FROM `qbmdt_firearms` WHERE `serial` = ?', { serial })
+    return QB.sql.single('SELECT `serial`,`weapon_name`,`owner_citizenid`,`licence_number`,`purchased_at` FROM `kora_mdt_firearms` WHERE `serial` = ?', { serial })
 end)
 
 -- Operational MDT data. These callbacks deliberately keep search limits and
@@ -375,16 +375,16 @@ end)
 QB.callback.register('qbmdt:server:dashboard', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     local counts, countErr = QB.sql.single([[SELECT
-        (SELECT COUNT(*) FROM `qbmdt_reports` WHERE `status` = 'open') AS `open_reports`,
-        (SELECT COUNT(*) FROM `qbmdt_cases` WHERE `status` <> 'closed') AS `open_cases`,
-        (SELECT COUNT(*) FROM `qbmdt_warrants` WHERE `status` = 'active' AND `expires_at` > NOW()) AS `active_warrants`,
-        (SELECT COUNT(*) FROM `qbmdt_bolos` WHERE `status` = 'active' AND (`expires_at` IS NULL OR `expires_at` > NOW())) AS `active_bolos`]])
+        (SELECT COUNT(*) FROM `kora_mdt_reports` WHERE `status` = 'open') AS `open_reports`,
+        (SELECT COUNT(*) FROM `kora_mdt_cases` WHERE `status` <> 'closed') AS `open_cases`,
+        (SELECT COUNT(*) FROM `kora_mdt_warrants` WHERE `status` = 'active' AND `expires_at` > NOW()) AS `active_warrants`,
+        (SELECT COUNT(*) FROM `kora_mdt_bolos` WHERE `status` = 'active' AND (`expires_at` IS NULL OR `expires_at` > NOW())) AS `active_bolos`]])
     if not counts then
         logError('dashboard counts query failed', countErr)
         return nil, ('Could not load the dashboard: %s'):format(cleanText(tostring(countErr or 'database query failed'), 200, false))
     end
     local recent, recentErr = listQuery('recent reports', [[SELECT `id`,`title`,`status`,`author_citizenid`,]] .. ts('`updated_at`') .. [[ AS `updated_at`
-        FROM `qbmdt_reports` ORDER BY `updated_at` DESC, `id` DESC LIMIT 8]])
+        FROM `kora_mdt_reports` ORDER BY `updated_at` DESC, `id` DESC LIMIT 8]])
     if not recent then return nil, recentErr end
     counts.recent = recent
     return counts
@@ -415,8 +415,8 @@ QB.callback.register('qbmdt:server:reports', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     return listQuery('reports', ([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`charge_code`,c.`label` AS `charge_label`,
         r.`subject_text`,r.`charge_text`,r.`author_citizenid`,]] .. ts('r.`updated_at`') .. [[ AS `updated_at`,p.`name` AS `subject_name`
-        FROM `qbmdt_reports` r LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
-        LEFT JOIN `qbmdt_charges` c ON c.`code` COLLATE utf8mb4_unicode_ci = r.`charge_code` COLLATE utf8mb4_unicode_ci
+        FROM `kora_mdt_reports` r LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
+        LEFT JOIN `kora_mdt_charges` c ON c.`code` COLLATE utf8mb4_unicode_ci = r.`charge_code` COLLATE utf8mb4_unicode_ci
         ORDER BY (r.`status` = 'open') DESC,r.`updated_at` DESC,r.`id` DESC LIMIT %d]]):format(C.operations.recentLimit))
 end)
 
@@ -424,7 +424,7 @@ QB.callback.register('qbmdt:server:reportOptions', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     return listQuery('report options', [[SELECT r.`id`,r.`title`,
         COALESCE(p.`name`,r.`subject_citizenid`,r.`subject_text`,'Unknown') AS `subject`
-        FROM `qbmdt_reports` r
+        FROM `kora_mdt_reports` r
         LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
         ORDER BY r.`created_at` DESC,r.`id` DESC]])
 end)
@@ -436,10 +436,10 @@ QB.callback.register('qbmdt:server:report', function(src, value)
     return withTimes(QB.sql.single([[SELECT r.`id`,r.`title`,r.`narrative`,r.`status`,r.`subject_citizenid`,r.`subject_text`,r.`charge_text`,r.`charge_code`,
         r.`author_citizenid`,DATE_FORMAT(r.`created_at`, '%Y-%m-%d %H:%i:%s') AS `created_at`,
         p.`name` AS `subject_name`,a.`name` AS `author_name`,c.`label` AS `charge_label`,c.`fine`
-        FROM `qbmdt_reports` r
+        FROM `kora_mdt_reports` r
         LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
         LEFT JOIN `players` a ON a.`citizenid` COLLATE utf8mb4_unicode_ci = r.`author_citizenid` COLLATE utf8mb4_unicode_ci
-        LEFT JOIN `qbmdt_charges` c ON c.`code` COLLATE utf8mb4_unicode_ci = r.`charge_code` COLLATE utf8mb4_unicode_ci WHERE r.`id` = ?]], { id }))
+        LEFT JOIN `kora_mdt_charges` c ON c.`code` COLLATE utf8mb4_unicode_ci = r.`charge_code` COLLATE utf8mb4_unicode_ci WHERE r.`id` = ?]], { id }))
 end)
 
 local function createReport(src, input)
@@ -494,7 +494,7 @@ local function createReport(src, input)
     if not author then return nil, 'Your character could not be identified. Reconnect and try again.' end
     -- A Lua table cannot hold nil, so absent optional values are bound as explicit SQL NULL.
     local NULL = QB.sql.NULL
-    local id, err = QB.sql.insert([[INSERT INTO `qbmdt_reports`
+    local id, err = QB.sql.insert([[INSERT INTO `kora_mdt_reports`
         (`title`,`narrative`,`subject_citizenid`,`subject_text`,`charge_code`,`charge_text`,`author_citizenid`) VALUES (?,?,?,?,?,?,?)]],
         { title, narrative, subject or NULL, subjectFree or NULL, chargeCode or NULL, chargeFree or NULL, author })
     if not id then
@@ -502,7 +502,7 @@ local function createReport(src, input)
         return nil, 'The report could not be saved (database error). Ask an administrator to check the server console.'
     end
     if chargeCode and subject then
-        local _, recordErr = QB.sql.insert([[INSERT INTO `qbmdt_criminal_records`
+        local _, recordErr = QB.sql.insert([[INSERT INTO `kora_mdt_criminal_records`
             (`citizenid`,`charge_code`,`notes`,`author_citizenid`) VALUES (?,?,?,?)]],
             { subject, chargeCode, ('Report #%s: %s'):format(id, title):sub(1, 1000), author })
         if recordErr then logError('createReport criminal record insert failed', recordErr) end
@@ -526,7 +526,7 @@ QB.callback.register('qbmdt:server:closeReport', function(src, value)
     if not can(src, 'police') then return false, 'not authorised' end
     local id = cleanId(value)
     if not id then return false, 'invalid report' end
-    local changed, err = QB.sql.update([[UPDATE `qbmdt_reports` SET `status` = 'closed'
+    local changed, err = QB.sql.update([[UPDATE `kora_mdt_reports` SET `status` = 'closed'
         WHERE `id` = ? AND `status` = 'open']], { id })
     if not changed or changed < 1 then return false, err or 'report is already closed' end
     audit(src, 'report.close', 'report', id)
@@ -536,8 +536,8 @@ end)
 QB.callback.register('qbmdt:server:cases', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     return listQuery('cases', ([[SELECT c.`id`,c.`title`,c.`priority`,c.`status`,c.`lead_citizenid`,]] .. ts('c.`updated_at`') .. [[ AS `updated_at`,
-        (SELECT COUNT(*) FROM `qbmdt_case_reports` cr WHERE cr.`case_id` = c.`id`) AS `report_count`
-        FROM `qbmdt_cases` c ORDER BY (c.`status` <> 'closed') DESC,c.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit))
+        (SELECT COUNT(*) FROM `kora_mdt_case_reports` cr WHERE cr.`case_id` = c.`id`) AS `report_count`
+        FROM `kora_mdt_cases` c ORDER BY (c.`status` <> 'closed') DESC,c.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit))
 end)
 
 QB.callback.register('qbmdt:server:case', function(src, value)
@@ -546,13 +546,13 @@ QB.callback.register('qbmdt:server:case', function(src, value)
     if not id then return nil, 'invalid case' end
     local row = QB.sql.single([[SELECT c.`id`,c.`title`,c.`summary`,c.`priority`,c.`status`,c.`lead_citizenid`,
         DATE_FORMAT(c.`created_at`, '%Y-%m-%d %H:%i:%s') AS `created_at`,
-        DATE_FORMAT(c.`updated_at`, '%Y-%m-%d %H:%i:%s') AS `updated_at`,p.`name` AS `lead_name` FROM `qbmdt_cases` c
+        DATE_FORMAT(c.`updated_at`, '%Y-%m-%d %H:%i:%s') AS `updated_at`,p.`name` AS `lead_name` FROM `kora_mdt_cases` c
         LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = c.`lead_citizenid` COLLATE utf8mb4_unicode_ci WHERE c.`id` = ?]], { id })
     if not row then return nil, 'case not found' end
     withTimes(row)
     row.reports = QB.sql.query([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,
         DATE_FORMAT(r.`updated_at`, '%Y-%m-%d %H:%i:%s') AS `updated_at`
-        FROM `qbmdt_case_reports` cr JOIN `qbmdt_reports` r ON r.`id` = cr.`report_id`
+        FROM `kora_mdt_case_reports` cr JOIN `kora_mdt_reports` r ON r.`id` = cr.`report_id`
         WHERE cr.`case_id` = ? ORDER BY r.`updated_at` DESC]], { id }) or {}
     withTimes(row.reports)
     return row
@@ -581,7 +581,7 @@ QB.callback.register('qbmdt:server:createCase', function(src, input)
             local reportId = cleanId(value)
             if not reportId then return nil, 'invalid initial report' end
             if not seenReports[reportId] then
-                if not QB.sql.single('SELECT `id` FROM `qbmdt_reports` WHERE `id` = ?', { reportId }) then
+                if not QB.sql.single('SELECT `id` FROM `kora_mdt_reports` WHERE `id` = ?', { reportId }) then
                     return nil, 'initial report not found'
                 end
                 seenReports[reportId] = true
@@ -591,11 +591,11 @@ QB.callback.register('qbmdt:server:createCase', function(src, input)
     end
 
     local lead = citizenId(src)
-    local id, err = QB.sql.insert([[INSERT INTO `qbmdt_cases`
+    local id, err = QB.sql.insert([[INSERT INTO `kora_mdt_cases`
         (`title`,`summary`,`priority`,`lead_citizenid`) VALUES (?,?,?,?)]], { title, summary, priority, lead })
     if not id then return nil, err or 'database error' end
     for _, reportId in ipairs(reportIds) do
-        QB.sql.execute('INSERT IGNORE INTO `qbmdt_case_reports` (`case_id`,`report_id`) VALUES (?,?)', { id, reportId })
+        QB.sql.execute('INSERT IGNORE INTO `kora_mdt_case_reports` (`case_id`,`report_id`) VALUES (?,?)', { id, reportId })
     end
     audit(src, 'case.create', 'case', id, title)
     return id
@@ -606,7 +606,7 @@ QB.callback.register('qbmdt:server:updateCaseStatus', function(src, value, statu
     local id = cleanId(value)
     local states = { open = true, investigating = true, closed = true }
     if not id or not states[status] then return false, 'invalid case status' end
-    local changed, err = QB.sql.update('UPDATE `qbmdt_cases` SET `status` = ? WHERE `id` = ? AND `status` <> ?', { status, id, status })
+    local changed, err = QB.sql.update('UPDATE `kora_mdt_cases` SET `status` = ? WHERE `id` = ? AND `status` <> ?', { status, id, status })
     if not changed or changed < 1 then return false, err or 'case already has that status' end
     audit(src, 'case.status', 'case', id, status)
     return true
@@ -616,9 +616,9 @@ QB.callback.register('qbmdt:server:linkCaseReport', function(src, caseValue, rep
     if not can(src, 'police') then return false, 'not authorised' end
     local caseId, reportId = cleanId(caseValue), cleanId(reportValue)
     if not caseId or not reportId then return false, 'invalid case or report' end
-    if not QB.sql.single('SELECT `id` FROM `qbmdt_cases` WHERE `id` = ?', { caseId }) then return false, 'case not found' end
-    if not QB.sql.single('SELECT `id` FROM `qbmdt_reports` WHERE `id` = ?', { reportId }) then return false, 'report not found' end
-    local result, err = QB.sql.execute('INSERT IGNORE INTO `qbmdt_case_reports` (`case_id`,`report_id`) VALUES (?,?)', { caseId, reportId })
+    if not QB.sql.single('SELECT `id` FROM `kora_mdt_cases` WHERE `id` = ?', { caseId }) then return false, 'case not found' end
+    if not QB.sql.single('SELECT `id` FROM `kora_mdt_reports` WHERE `id` = ?', { reportId }) then return false, 'report not found' end
+    local result, err = QB.sql.execute('INSERT IGNORE INTO `kora_mdt_case_reports` (`case_id`,`report_id`) VALUES (?,?)', { caseId, reportId })
     if not result then return false, err or 'database error' end
     local affectedRows = type(result) == 'table' and tonumber(result.affectedRows) or tonumber(result)
     if affectedRows == 0 then return false, 'report is already linked' end
@@ -631,7 +631,7 @@ QB.callback.register('qbmdt:server:warrants', function(src)
     return listQuery('warrants', ([[SELECT w.`id`,w.`citizenid`,w.`reason`,
         IF(w.`status` = 'active' AND w.`expires_at` <= NOW(),'expired',w.`status`) AS `status`,
         DATE_FORMAT(w.`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,w.`author_citizenid`,p.`name` AS `subject_name`
-        FROM `qbmdt_warrants` w LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = w.`citizenid` COLLATE utf8mb4_unicode_ci
+        FROM `kora_mdt_warrants` w LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = w.`citizenid` COLLATE utf8mb4_unicode_ci
         ORDER BY (w.`status` = 'active' AND w.`expires_at` > NOW()) DESC,w.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit))
 end)
 
@@ -643,7 +643,7 @@ QB.callback.register('qbmdt:server:createWarrant', function(src, input)
     local missing = missingRequired('warrant', { 'citizenid', 'reason' }, { citizenid = target, reason = reason })
     if missing then return nil, missing end
     if not personExists(target) then return nil, 'Citizen ID not found. Check the citizen ID.' end
-    local id, err = QB.sql.insert([[INSERT INTO `qbmdt_warrants`
+    local id, err = QB.sql.insert([[INSERT INTO `kora_mdt_warrants`
         (`citizenid`,`reason`,`author_citizenid`,`expires_at`) VALUES (?,?,?,DATE_ADD(NOW(), INTERVAL ? DAY))]],
         { target, reason, citizenId(src), days })
     if not id then return nil, err or 'database error' end
@@ -655,7 +655,7 @@ QB.callback.register('qbmdt:server:closeWarrant', function(src, value, status)
     if not can(src, 'police') then return false, 'not authorised' end
     local id = cleanId(value)
     if not id or (status ~= 'served' and status ~= 'revoked') then return false, 'invalid warrant action' end
-    local changed, err = QB.sql.update([[UPDATE `qbmdt_warrants` SET `status` = ?,`closed_by_citizenid` = ?
+    local changed, err = QB.sql.update([[UPDATE `kora_mdt_warrants` SET `status` = ?,`closed_by_citizenid` = ?
         WHERE `id` = ? AND `status` = 'active' AND `expires_at` > NOW()]], { status, citizenId(src), id })
     if not changed or changed < 1 then return false, err or 'warrant is not active' end
     audit(src, 'warrant.' .. status, 'warrant', id)
@@ -683,7 +683,7 @@ Kora.callback.register('qbmdt:server:bolos', function(src)
         b.`subject_label` AS `legacy_label`,p.`name` AS `linked_name`,p.`citizenid` AS `linked_citizenid`,
         b.`title`,b.`description`,
         IF(b.`status` = 'active' AND b.`expires_at` IS NOT NULL AND b.`expires_at` <= NOW(),'expired',b.`status`) AS `status`,
-        b.`author_citizenid`,DATE_FORMAT(b.`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,]] .. ts('b.`updated_at`') .. [[ AS `updated_at` FROM `qbmdt_bolos` b
+        b.`author_citizenid`,DATE_FORMAT(b.`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,]] .. ts('b.`updated_at`') .. [[ AS `updated_at` FROM `kora_mdt_bolos` b
         LEFT JOIN `players` p ON b.`subject_type` = 'person' AND p.`citizenid` COLLATE utf8mb4_unicode_ci = b.`subject_identifier` COLLATE utf8mb4_unicode_ci
         ORDER BY (b.`status` = 'active' AND (b.`expires_at` IS NULL OR b.`expires_at` > NOW())) DESC,b.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit))
     if not rows then return nil, err end
@@ -728,7 +728,7 @@ local function createBolo(src, input)
     else
         identifier = identifier:upper()
     end
-    local id, err = Kora.sql.insert([[INSERT INTO `qbmdt_bolos`
+    local id, err = Kora.sql.insert([[INSERT INTO `kora_mdt_bolos`
         (`subject_type`,`subject_identifier`,`subject_text`,`title`,`description`,`author_citizenid`,`expires_at`)
         VALUES (?,?,?,?,?,?,DATE_ADD(NOW(), INTERVAL ? DAY))]], { kind, identifier, typed, title, description, citizenId(src), days })
     if not id then
@@ -753,7 +753,7 @@ QB.callback.register('qbmdt:server:resolveBolo', function(src, value)
     if not can(src, 'police') then return false, 'not authorised' end
     local id = cleanId(value)
     if not id then return false, 'invalid BOLO' end
-    local changed, err = QB.sql.update("UPDATE `qbmdt_bolos` SET `status` = 'resolved' WHERE `id` = ? AND `status` = 'active'", { id })
+    local changed, err = QB.sql.update("UPDATE `kora_mdt_bolos` SET `status` = 'resolved' WHERE `id` = ? AND `status` = 'active'", { id })
     if not changed or changed < 1 then return false, err or 'BOLO is not active' end
     audit(src, 'bolo.resolve', 'bolo', id)
     return true
@@ -839,7 +839,7 @@ local function issueWeaponLicence(src, state)
     if cid ~= state.citizenid or hasWeaponLicense(src) then return false end
 
     local number = ('WPN-%s-%04d'):format(cid:sub(-6):upper(), math.random(0, 9999))
-    local written = QB.sql.execute([[INSERT INTO `qbmdt_licences`
+    local written = QB.sql.execute([[INSERT INTO `kora_mdt_licences`
         (`citizenid`,`licence_type`,`licence_number`) VALUES (?,?,?)
         ON DUPLICATE KEY UPDATE `licence_number` = VALUES(`licence_number`)]], { cid, 'weapon', number })
     if not written then return false end

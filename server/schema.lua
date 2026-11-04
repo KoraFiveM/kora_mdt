@@ -2,7 +2,7 @@ local TS = { raw = 'CURRENT_TIMESTAMP' }
 
 QBMdtSchema = {
     {
-        name = 'qbmdt_licences', collate = 'utf8mb4_unicode_ci',
+        name = 'kora_mdt_licences', collate = 'utf8mb4_unicode_ci',
         columns = {
             { name = 'citizenid', type = 'varchar(64)' },
             { name = 'licence_type', type = 'varchar(32)' },
@@ -13,7 +13,7 @@ QBMdtSchema = {
         indexes = { { name = 'uq_mdt_licence_number', columns = { 'licence_number' }, unique = true } },
     },
     {
-        name = 'qbmdt_firearms', collate = 'utf8mb4_unicode_ci',
+        name = 'kora_mdt_firearms', collate = 'utf8mb4_unicode_ci',
         columns = {
             { name = 'serial', type = 'varchar(96)' },
             { name = 'weapon_name', type = 'varchar(96)' },
@@ -29,7 +29,7 @@ QBMdtSchema = {
         },
     },
     {
-        name = 'qbmdt_charges', collate = 'utf8mb4_unicode_ci',
+        name = 'kora_mdt_charges', collate = 'utf8mb4_unicode_ci',
         columns = {
             { name = 'code', type = 'varchar(32)' },
             { name = 'label', type = 'varchar(128)' },
@@ -39,7 +39,7 @@ QBMdtSchema = {
         primary = { 'code' },
     },
     {
-        name = 'qbmdt_criminal_records', collate = 'utf8mb4_unicode_ci',
+        name = 'kora_mdt_criminal_records', collate = 'utf8mb4_unicode_ci',
         columns = {
             { name = 'id', type = 'bigint', unsigned = true, auto_increment = true },
             { name = 'citizenid', type = 'varchar(64)' },
@@ -52,7 +52,7 @@ QBMdtSchema = {
         indexes = { { name = 'idx_mdt_criminal_citizen', columns = { 'citizenid' } } },
     },
     {
-        name = 'qbmdt_medical_records', collate = 'utf8mb4_unicode_ci',
+        name = 'kora_mdt_medical_records', collate = 'utf8mb4_unicode_ci',
         columns = {
             { name = 'id', type = 'bigint', unsigned = true, auto_increment = true },
             { name = 'citizenid', type = 'varchar(64)' },
@@ -64,7 +64,7 @@ QBMdtSchema = {
         indexes = { { name = 'idx_mdt_medical_citizen', columns = { 'citizenid' } } },
     },
     {
-        name = 'qbmdt_reports', collate = 'utf8mb4_unicode_ci',
+        name = 'kora_mdt_reports', collate = 'utf8mb4_unicode_ci',
         columns = {
             { name = 'id', type = 'bigint', unsigned = true, auto_increment = true },
             { name = 'title', type = 'varchar(160)' },
@@ -85,7 +85,7 @@ QBMdtSchema = {
         },
     },
     {
-        name = 'qbmdt_cases', collate = 'utf8mb4_unicode_ci',
+        name = 'kora_mdt_cases', collate = 'utf8mb4_unicode_ci',
         columns = {
             { name = 'id', type = 'bigint', unsigned = true, auto_increment = true },
             { name = 'title', type = 'varchar(160)' },
@@ -100,7 +100,7 @@ QBMdtSchema = {
         indexes = { { name = 'idx_mdt_cases_status_updated', columns = { 'status', 'updated_at' } } },
     },
     {
-        name = 'qbmdt_case_reports', collate = 'utf8mb4_unicode_ci',
+        name = 'kora_mdt_case_reports', collate = 'utf8mb4_unicode_ci',
         columns = {
             { name = 'case_id', type = 'bigint', unsigned = true },
             { name = 'report_id', type = 'bigint', unsigned = true },
@@ -109,7 +109,7 @@ QBMdtSchema = {
         indexes = { { name = 'idx_mdt_case_reports_report', columns = { 'report_id' } } },
     },
     {
-        name = 'qbmdt_warrants', collate = 'utf8mb4_unicode_ci',
+        name = 'kora_mdt_warrants', collate = 'utf8mb4_unicode_ci',
         columns = {
             { name = 'id', type = 'bigint', unsigned = true, auto_increment = true },
             { name = 'citizenid', type = 'varchar(64)' },
@@ -128,7 +128,7 @@ QBMdtSchema = {
         },
     },
     {
-        name = 'qbmdt_bolos', collate = 'utf8mb4_unicode_ci',
+        name = 'kora_mdt_bolos', collate = 'utf8mb4_unicode_ci',
         columns = {
             { name = 'id', type = 'bigint', unsigned = true, auto_increment = true },
             { name = 'subject_type', type = 'enum', values = { 'person', 'vehicle' } },
@@ -150,7 +150,7 @@ QBMdtSchema = {
         },
     },
     {
-        name = 'qbmdt_audit_log', collate = 'utf8mb4_unicode_ci',
+        name = 'kora_mdt_audit_log', collate = 'utf8mb4_unicode_ci',
         columns = {
             { name = 'id', type = 'bigint', unsigned = true, auto_increment = true },
             { name = 'actor_citizenid', type = 'varchar(64)' },
