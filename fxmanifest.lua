@@ -24,5 +24,5 @@ shared_scripts {
     'shared/required.lua',
 }
 
-server_scripts { 'server/schema.lua', 'server/migrate.lua', 'server/main.lua' }
+server_scripts { 'server/schema.lua', 'server/boot.lua', 'server/main.lua' }
 client_scripts { 'client/terminal.lua', 'client/main.lua' }

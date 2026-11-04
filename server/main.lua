@@ -662,8 +662,8 @@ QB.callback.register('qbmdt:server:closeWarrant', function(src, value, status)
     return true
 end)
 
--- The BOLO Subject is the text the officer typed. Rows saved before migration 5 have no
--- subject_text: version 4 stored "Name (CID)" in subject_label and earlier rows only the
+-- The BOLO Subject is the text the officer typed. Older rows have no
+-- subject_text: earlier versions stored "Name (CID)" in subject_label and earlier rows only the
 -- resolved citizen ID, so fall back without ever appending a citizen ID to a person.
 local function boloSubject(row)
     if type(row.subject_text) == 'string' and row.subject_text ~= '' then return row.subject_text end

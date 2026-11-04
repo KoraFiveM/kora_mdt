@@ -71,7 +71,7 @@ end)
 
 h.test('every qbmdt_* to external-table comparison in server SQL pins the collation on both sides', function()
     local checked = 0
-    for _, path in ipairs({ 'server/main.lua', 'server/migrate.lua' }) do
+    for _, path in ipairs({ 'server/main.lua', 'server/boot.lua' }) do
         for _, sql in ipairs(sqlStrings(read(path))) do
             if sql:find('`players`', 1, true) and sql:find('qbmdt_', 1, true) then checked = checked + 1 end
             local problems = audit(sql)
@@ -98,13 +98,13 @@ h.test('schema declares every qbmdt_* table with the unicode collation', functio
     end
 end)
 
-h.test('startup applies the schema and converts mismatched tables instead of running sql files', function()
-    local source = read('server/migrate.lua')
-    h.assertTrue(source:find('ensureTables(QBMdtSchema)', 1, true) ~= nil, 'migrate.lua must call ensureTables')
-    h.assertTrue(source:find('CONVERT TO CHARACTER SET utf8mb4 COLLATE', 1, true) ~= nil, 'collation alignment must be kept')
-    h.assertTrue(source:find('information_schema', 1, true) ~= nil, 'collation alignment must be guarded')
-    h.assertTrue(source:find('migrateFiles', 1, true) == nil, 'sql file migrations were replaced by the schema')
-    h.assertTrue(read('fxmanifest.lua'):find("'server/schema.lua', 'server/migrate.lua'", 1, true) ~= nil, 'schema must load before migrate.lua')
+h.test('startup only applies the schema: no migrations, conversions or sql files', function()
+    local source = read('server/boot.lua')
+    h.assertTrue(source:find('ensureTables(QBMdtSchema)', 1, true) ~= nil, 'boot.lua must call ensureTables')
+    for _, banned in ipairs({ 'migrateFiles', 'Kora.sql.migrate', 'ALTER TABLE', 'CONVERT TO' }) do
+        h.assertTrue(source:find(banned, 1, true) == nil, 'boot.lua must not contain ' .. banned)
+    end
+    h.assertTrue(read('fxmanifest.lua'):find("'server/schema.lua', 'server/boot.lua'", 1, true) ~= nil, 'schema must load before boot.lua')
 end)
 
 h.report('qbmdt collation')
