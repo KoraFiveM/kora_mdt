@@ -104,6 +104,7 @@ h.test('startup only applies the schema: no migrations, conversions or sql files
     for _, banned in ipairs({ 'migrateFiles', 'Kora.sql.migrate', 'ALTER TABLE', 'CONVERT TO' }) do
         h.assertTrue(source:find(banned, 1, true) == nil, 'boot.lua must not contain ' .. banned)
     end
+    h.assertTrue(source:find("awaitTables({ 'players' }", 1, true) ~= nil and source:find('LIMIT 0', 1, true) == nil, 'boot waits for core players table instead of polling')
     h.assertTrue(read('fxmanifest.lua'):find("'server/schema.lua', 'server/boot.lua'", 1, true) ~= nil, 'schema must load before boot.lua')
 end)
 
