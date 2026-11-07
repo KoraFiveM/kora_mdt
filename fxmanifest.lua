@@ -19,10 +19,9 @@ dependency 'kora_dispatch'
 
 shared_scripts {
     '@kora_lib/init.lua',
-    '@kora_sql/init.lua',
     'config.lua',
     'shared/required.lua',
 }
 
-server_scripts { 'server/schema.lua', 'server/boot.lua', 'server/main.lua' }
+server_scripts { '@kora_sql/init.lua', 'server/schema.lua', 'server/boot.lua', 'server/main.lua' }
 client_scripts { 'client/terminal.lua', 'client/main.lua' }
