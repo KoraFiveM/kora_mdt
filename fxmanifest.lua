@@ -25,3 +25,6 @@ shared_scripts {
 
 server_scripts { '@kora_sql/init.lua', 'server/schema.lua', 'server/boot.lua', 'server/main.lua' }
 client_scripts { 'client/terminal.lua', 'client/main.lua' }
+
+-- kora_qa: Gherkin test scenarios (converted legacy tests), see [kora]/kora_qa/README.md
+qa_feature 'tests/*.feature'
