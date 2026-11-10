@@ -76,7 +76,7 @@ function M.install()
     end
 
     function handle.net(name, src, ...)
-        local registered = QB.events.registry[name]
+        local registered = Kora.events.registry[name]
         if registered then return registered.handler(src, ...) end
         local callback = assert(handle.netHandlers[name], 'missing event handler ' .. name)
         local previous = _G.source
@@ -107,15 +107,15 @@ function M.install()
 
     local nextAuthorization, nextProof = 0, 0
     local issuedAuthorizations, proofs = {}, {}
-    _G.QB = {
+    _G.Kora = {
         callback = {
             registry = {},
-            register = function(name, callback) QB.callback.registry[name] = callback end,
+            register = function(name, callback) Kora.callback.registry[name] = callback end,
         },
         events = {
             registry = {},
             register = function(name, callback, options)
-                QB.events.registry[name] = { handler = callback, options = options }
+                Kora.events.registry[name] = { handler = callback, options = options }
             end,
         },
         minigames = {
@@ -146,7 +146,7 @@ function M.install()
             end,
         },
         sql = {
-            NULL = '\0qbsql:null\0',
+            NULL = '\0kora_sql:null\0',
             single = function(query, params)
                 if handle.sqlSingle then return handle.sqlSingle(query, params) end
                 if query:find('kora_mdt_licences', 1, true) then
@@ -189,7 +189,7 @@ function M.install()
     end
 
     local exportImpls = { kora_core = {}, kora_inventory = {}, kora_police = {} }
-    _G.Kora = _G.QB -- kora_lib sets QB = Kora (the same table)
+    _G.Kora = _G.Kora -- kora_lib sets Kora = Kora (the same table)
     _G.exports = setmetatable({}, {
         __call = function() end,
         __index = function(_, resource)

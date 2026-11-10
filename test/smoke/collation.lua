@@ -41,8 +41,8 @@ local function audit(sql)
     end
     if not (hasInternal and hasExternal) then return problems end
 
-    if sql:upper():find('%f[%a]UNION%f[%A]') then problems[#problems + 1] = 'UNION across qbmdt and external tables' end
-    if sql:upper():find('%f[%a]IN%s*%(%s*SELECT') then problems[#problems + 1] = 'IN (SELECT ...) across qbmdt and external tables' end
+    if sql:upper():find('%f[%a]UNION%f[%A]') then problems[#problems + 1] = 'UNION across kora_mdt and external tables' end
+    if sql:upper():find('%f[%a]IN%s*%(%s*SELECT') then problems[#problems + 1] = 'IN (SELECT ...) across kora_mdt and external tables' end
 
     local operand = '(%a%w*)%.`([%w_]+)`([%w_ ]-)' -- alias.`col` [COLLATE x]
     local operandB = '(%a%w*)%.`([%w_]+)`([%w_ ]*)'
@@ -58,7 +58,7 @@ local function audit(sql)
     return problems
 end
 
-h.test('collation audit detects unpinned and accepts pinned qbmdt/external joins', function()
+h.test('collation audit detects unpinned and accepts pinned kora_mdt/external joins', function()
     local bad = 'SELECT 1 FROM `kora_mdt_reports` r LEFT JOIN `players` p ON p.`citizenid` = r.`subject_citizenid`'
     h.assertEqual(#audit(bad), 1)
     local oneSide = 'SELECT 1 FROM `kora_mdt_reports` r LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid`'
@@ -82,11 +82,11 @@ h.test('every kora_mdt_* to external-table comparison in server SQL pins the col
 end)
 
 h.test('schema declares every kora_mdt_* table with the unicode collation', function()
-    _G.Kora = _G.Kora or { sql = { NULL = '\0qbsql:null\0' } }
+    _G.Kora = _G.Kora or { sql = { NULL = '\0kora_sql:null\0' } }
     dofile('server/schema.lua')
-    h.assertTrue(#QBMdtSchema >= 11, 'expected the qbmdt tables in QBMdtSchema')
+    h.assertTrue(#KoraMdtSchema >= 11, 'expected the kora_mdt tables in KoraMdtSchema')
     local names = {}
-    for _, spec in ipairs(QBMdtSchema) do
+    for _, spec in ipairs(KoraMdtSchema) do
         names[spec.name] = true
         h.assertEqual(spec.collate, COLLATION, spec.name .. ' must declare ' .. COLLATION)
         h.assertTrue(spec.primary ~= nil, spec.name .. ' needs a primary key')
@@ -100,7 +100,7 @@ end)
 
 h.test('startup only applies the schema: no migrations, conversions or sql files', function()
     local source = read('server/boot.lua')
-    h.assertTrue(source:find('ensureTables(QBMdtSchema)', 1, true) ~= nil, 'boot.lua must call ensureTables')
+    h.assertTrue(source:find('ensureTables(KoraMdtSchema)', 1, true) ~= nil, 'boot.lua must call ensureTables')
     for _, banned in ipairs({ 'migrateFiles', 'Kora.sql.migrate', 'ALTER TABLE', 'CONVERT TO' }) do
         h.assertTrue(source:find(banned, 1, true) == nil, 'boot.lua must not contain ' .. banned)
     end
@@ -108,4 +108,4 @@ h.test('startup only applies the schema: no migrations, conversions or sql files
     h.assertTrue(read('fxmanifest.lua'):find("'server/schema.lua', 'server/boot.lua'", 1, true) ~= nil, 'schema must load before boot.lua')
 end)
 
-h.report('qbmdt collation')
+h.report('kora_mdt collation')

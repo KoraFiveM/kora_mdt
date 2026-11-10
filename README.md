@@ -52,7 +52,7 @@ event; hiding a page in the client is never treated as authorization.
 
 ## Database
 
-The schema is declared in `server/schema.lua` (`QBMdtSchema`) and applied on start through
+The schema is declared in `server/schema.lua` (`KoraMdtSchema`) and applied on start through
 `Kora.sql.ensureTables`, which only adds what is missing.
 Queries that join `kora_mdt_*` columns to external tables such as `players` pin
 `COLLATE utf8mb4_unicode_ci` on both sides, so they work whatever collation the tables have.

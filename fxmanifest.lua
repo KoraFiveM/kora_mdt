@@ -3,8 +3,6 @@ game 'gta5'
 lua54 'yes'
 
 name 'kora_mdt'
--- Keep the legacy resource name resolvable for exports['qbmdt'] callers.
-provide 'qbmdt'
 author 'qbcore2'
 version '0.2.0'
 description 'Role-gated police, court, and medical records terminal'

@@ -31,10 +31,10 @@ local function form(title, fields)
     return result.values
 end
 local function notify(message, kind)
-    QB.notify.send({ title = 'MDT', message = message, type = kind or 'info' })
+    Kora.notify.send({ title = 'MDT', message = message, type = kind or 'info' })
 end
 RegisterCommand(C.command, function()
-    local ok, err = QB.events.trigger('qbmdt:server:open')
+    local ok, err = Kora.events.trigger('kora_mdt:server:open')
     if not ok then notify(err or 'The MDT could not be reached.', 'error') end
 end, false)
 
@@ -51,23 +51,23 @@ local function cancelTrainingOutsideZone(watch)
     if not training or trainingWatch ~= watch or trainingCancelled then return end
     trainingCancelled = true
     RemoveWeaponFromPed(PlayerPedId(), joaat(trainingWeapon))
-    QB.events.trigger('qbmdt:server:cancelWeaponLicence')
+    Kora.events.trigger('kora_mdt:server:cancelWeaponLicence')
     notify('You left Ammu-Nation. The range weapon was removed.', 'error')
 end
 
 local function clearTrainingTargets()
-    for _, entity in ipairs(trainingTargets) do QB.entities.remove(entity) end
+    for _, entity in ipairs(trainingTargets) do Kora.entities.remove(entity) end
     trainingTargets = {}
 end
 
-RegisterNetEvent('qbmdt:client:weaponLicenceStart', function(settings)
+RegisterNetEvent('kora_mdt:client:weaponLicenceStart', function(settings)
     if training then return end
     training = true
     trainingWeapon = type(settings.weapon) == 'string' and settings.weapon or C.weaponLicence.weapon
     trainingWatch = trainingWatch + 1
     local watch = trainingWatch
     for _, offset in ipairs(settings.targetOffsets or {}) do
-        local entity = QB.entities.create(settings.targetModel, vector4(
+        local entity = Kora.entities.create(settings.targetModel, vector4(
             settings.range.x + offset.x,
             settings.range.y + offset.y,
             settings.range.z + offset.z,
@@ -77,7 +77,7 @@ RegisterNetEvent('qbmdt:client:weaponLicenceStart', function(settings)
     end
     if #trainingTargets == 0 then
         training = false
-        QB.events.trigger('qbmdt:server:cancelWeaponLicence')
+        Kora.events.trigger('kora_mdt:server:cancelWeaponLicence')
         return notify('The range targets could not be loaded.', 'error')
     end
     -- Edge-triggered instead of polling the player's position: the shared
@@ -96,17 +96,17 @@ RegisterNetEvent('qbmdt:client:weaponLicenceStart', function(settings)
     end)
     notify(('Fire all %d training rounds to complete the live-fire test.'):format(settings.shots))
 end)
-RegisterNetEvent('qbmdt:client:weaponLicenceQualification', function(authorization)
+RegisterNetEvent('kora_mdt:client:weaponLicenceQualification', function(authorization)
     if not training or type(authorization) ~= 'string' then return end
     local definition = C.weaponLicence.qualification
     local result = exports.kora_lib:minigames_play(definition.game, nil, authorization)
     if result and result.success and result.proof then
-        QB.events.trigger('qbmdt:server:completeWeaponLicence', result.proof)
+        Kora.events.trigger('kora_mdt:server:completeWeaponLicence', result.proof)
     else
-        QB.events.trigger('qbmdt:server:cancelWeaponLicence')
+        Kora.events.trigger('kora_mdt:server:cancelWeaponLicence')
     end
 end)
-RegisterNetEvent('qbmdt:client:weaponLicenceResult', function(passed, shots)
+RegisterNetEvent('kora_mdt:client:weaponLicenceResult', function(passed, shots)
     if not training then return end
     clearTrainingTargets()
     removeTrainingZone()
@@ -117,18 +117,18 @@ RegisterNetEvent('qbmdt:client:weaponLicenceResult', function(passed, shots)
         or ('Qualification failed after %d rounds. Try again.'):format(shots or 0), passed and 'success' or 'error')
 end)
 
-RegisterNetEvent('qbmdt:client:analysisStage', function(stage, authorization)
+RegisterNetEvent('kora_mdt:client:analysisStage', function(stage, authorization)
     local definition = C.analysis.stages[stage]
     if not definition or type(authorization) ~= 'string' then return end
     local result = exports.kora_lib:minigames_play(definition.game, nil, authorization)
     if result and result.success and result.proof then
-        QB.events.trigger('qbmdt:server:analysisStage', result.proof)
+        Kora.events.trigger('kora_mdt:server:analysisStage', result.proof)
     else
-        QB.events.trigger('qbmdt:server:cancelAnalysis')
+        Kora.events.trigger('kora_mdt:server:cancelAnalysis')
         notify('Analysis stage failed.', 'error')
     end
 end)
-RegisterNetEvent('qbmdt:client:analysisComplete', function(result)
+RegisterNetEvent('kora_mdt:client:analysisComplete', function(result)
     notify(('Case %s linked to %s (%s).'):format(result.caseId, result.weapon, result.weaponSerial), 'success')
 end)
 
@@ -137,7 +137,7 @@ local licenceTarget, recordsClerks = nil, {}
 local function registerLicenceTarget()
     if licenceTarget or GetResourceState('kora_target') ~= 'started' then return end
     local licence = C.weaponLicence
-    local options = { { label = 'start weapon licence range', icon = 'crosshair', onSelect = function() QB.events.trigger('qbmdt:server:startWeaponLicence') end } }
+    local options = { { label = 'start weapon licence range', icon = 'crosshair', onSelect = function() Kora.events.trigger('kora_mdt:server:startWeaponLicence') end } }
 
     -- A point keeps the prompt off other targets inside the building (e.g. the vending machine).
     if licence.interactionPoint then
@@ -165,7 +165,7 @@ local function registerRecordsClerk(clerk)
     clerk.target = exports.kora_target:addEntity(clerk.ped, { { label = record.label, icon = 'file-search', onSelect = function()
         local input = form(record.label, { { id = 'serial', label = 'Gun serial number', type = 'text', required = true } })
         if not input then return end
-        local row, err = QB.callback.trigger('qbmdt:server:shopFirearm', input.serial)
+        local row, err = Kora.callback.trigger('kora_mdt:server:shopFirearm', input.serial)
         notify(row and ('%s — owner %s'):format(row.weapon_name, row.owner_citizenid) or (err or 'No record found.'), row and 'info' or 'error')
     end } }, 2.0)
 end
@@ -188,7 +188,7 @@ for _, record in ipairs(C.firearms.shopRecords) do
     -- A local, invincible clerk makes the configured RP lookup a real person
     -- at the counter. The server still verifies the player's distance before
     -- returning a sale record, so this ped is presentation rather than trust.
-    local clerk, err = QB.entities.create('s_m_m_ammucountry', vector4(
+    local clerk, err = Kora.entities.create('s_m_m_ammucountry', vector4(
         record.coords.x, record.coords.y, record.coords.z - 1.0, record.coords.w
     ), { preset = 'static' })
     if clerk then
@@ -196,6 +196,6 @@ for _, record in ipairs(C.firearms.shopRecords) do
         recordsClerks[#recordsClerks + 1] = entry
         registerRecordsClerk(entry)
     else
-        print(('^1[qbmdt]^7 records clerk failed to spawn: %s'):format(tostring(err)))
+        print(('^1[kora_mdt]^7 records clerk failed to spawn: %s'):format(tostring(err)))
     end
 end

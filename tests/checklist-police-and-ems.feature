@@ -10,7 +10,7 @@ Feature: kora_mdt — Police & EMS
     Given my job is "police"
     And I am on duty
     When I run the command "/mdt"
-    Then the "qbmdt:terminal" app should be open
+    Then the "kora_mdt:terminal" app should be open
     When I manually: set myself off duty or switch to a job that is not police, EMS or judge
     And I run the command "/mdt"
     Then I should see a notification containing "You must be on duty as police, EMS, or a judge to use the MDT."
@@ -24,7 +24,7 @@ Feature: kora_mdt — Police & EMS
     Given my job is "police"
     And I am on duty
     When I manually: open the MDT terminal (the mdt command)
-    Then the "qbmdt:terminal" app should be open
+    Then the "kora_mdt:terminal" app should be open
     When I manually: open the Dashboard tab
     Then I confirm: the dashboard shows open report, case, warrant and BOLO counts
     And I confirm: recent items are listed
@@ -37,7 +37,7 @@ Feature: kora_mdt — Police & EMS
     Given my job is "police"
     And I am on duty
     When I manually: open the MDT terminal (the mdt command)
-    Then the "qbmdt:terminal" app should be open
+    Then the "kora_mdt:terminal" app should be open
     When I manually: open the Search tab and choose Search citizens
     And I manually: type 2 or more characters of a citizen name, citizen ID or phone number
     Then I confirm: matching citizens are listed with at most 25 results
@@ -52,7 +52,7 @@ Feature: kora_mdt — Police & EMS
     Given my job is "police"
     And I am on duty
     When I manually: open the MDT terminal (the mdt command)
-    Then the "qbmdt:terminal" app should be open
+    Then the "kora_mdt:terminal" app should be open
     When I manually: search for a citizen and open their profile
     Then I confirm: the profile shows identity, licences, firearms, reports, warrants, BOLOs and criminal history
     And I confirm: medical history is not shown to a police-only role
@@ -67,7 +67,7 @@ Feature: kora_mdt — Police & EMS
     Given my job is "police"
     And I am on duty
     When I manually: open the MDT terminal (the mdt command)
-    Then the "qbmdt:terminal" app should be open
+    Then the "kora_mdt:terminal" app should be open
     When I manually: open the Search tab and choose Search vehicles
     And I manually: search by plate, model, owner or citizen ID and open a result
     Then I confirm: the record shows owner, state, garage or impound lot and active BOLOs
@@ -80,7 +80,7 @@ Feature: kora_mdt — Police & EMS
     Given my job is "police"
     And I am on duty
     When I manually: open the MDT terminal (the mdt command)
-    Then the "qbmdt:terminal" app should be open
+    Then the "kora_mdt:terminal" app should be open
     When I manually: open the Search tab and choose Penal code
     Then I confirm: the list shows SPD-01, WPN-01, WPN-02 and VEH-01 with their fines
 
@@ -92,7 +92,7 @@ Feature: kora_mdt — Police & EMS
     Given my job is "police"
     And I am on duty
     When I manually: open the MDT terminal (the mdt command)
-    Then the "qbmdt:terminal" app should be open
+    Then the "kora_mdt:terminal" app should be open
     When I manually: open the Search tab and choose Firearm registry (only applies when Config.mdt.firearms.lookupMode is mdt)
     And I manually: enter a registered gun serial
     Then I confirm: the weapon and owner citizen ID are shown if registered (only applies when lookupMode is mdt; otherwise mark Pass if the lookup is only at the clerk)
@@ -105,7 +105,7 @@ Feature: kora_mdt — Police & EMS
     Given my job is "police"
     And I am on duty
     When I manually: open the MDT terminal (the mdt command)
-    Then the "qbmdt:terminal" app should be open
+    Then the "kora_mdt:terminal" app should be open
     When I manually: open the Reports tab and choose New incident report
     And I manually: fill in a title and narrative, optionally a subject and charge, and save
     Then I confirm: the report is saved and appears in the list
@@ -118,7 +118,7 @@ Feature: kora_mdt — Police & EMS
     Given my job is "police"
     And I am on duty
     When I manually: open the MDT terminal (the mdt command)
-    Then the "qbmdt:terminal" app should be open
+    Then the "kora_mdt:terminal" app should be open
     When I manually: open the Reports tab and submit a new report with an empty narrative
     Then I confirm: an error names the missing narrative field
     When I manually: submit a report with a mistyped citizen ID containing a digit
@@ -132,7 +132,7 @@ Feature: kora_mdt — Police & EMS
     Given my job is "police"
     And I am on duty
     When I manually: open the MDT terminal (the mdt command)
-    Then the "qbmdt:terminal" app should be open
+    Then the "kora_mdt:terminal" app should be open
     When I manually: open the Reports tab and select a report row
     Then I confirm: the report details are shown
     When I manually: use Close report and confirm
@@ -146,7 +146,7 @@ Feature: kora_mdt — Police & EMS
     Given my job is "police"
     And I am on duty
     When I manually: open the MDT terminal (the mdt command)
-    Then the "qbmdt:terminal" app should be open
+    Then the "kora_mdt:terminal" app should be open
     When I manually: open the Cases tab and choose Open a case
     And I manually: enter a title, choose a priority (low, normal, high or critical), enter a summary and save
     Then I confirm: the case appears in the list
@@ -159,7 +159,7 @@ Feature: kora_mdt — Police & EMS
     Given my job is "police"
     And I am on duty
     When I manually: open the MDT terminal (the mdt command)
-    Then the "qbmdt:terminal" app should be open
+    Then the "kora_mdt:terminal" app should be open
     When I manually: open the Cases tab and choose Attach report to case
     And I manually: pick a case and a report and confirm
     Then I confirm: the linked report shows in the case timeline
@@ -172,7 +172,7 @@ Feature: kora_mdt — Police & EMS
     Given my job is "police"
     And I am on duty
     When I manually: open the MDT terminal (the mdt command)
-    Then the "qbmdt:terminal" app should be open
+    Then the "kora_mdt:terminal" app should be open
     When I manually: open a case record and use Begin investigation
     Then I confirm: the case status updates to investigating
     When I manually: use Close case

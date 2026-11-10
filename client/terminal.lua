@@ -75,15 +75,15 @@ local function openTerminal(role, policeBoss)
         }
     end
     if policeAccess then
-        setChargeOptions(QB.callback.trigger('qbmdt:server:charges') or {})
-        local reports = QB.callback.trigger('qbmdt:server:reportOptions') or {}
+        setChargeOptions(Kora.callback.trigger('kora_mdt:server:charges') or {})
+        local reports = Kora.callback.trigger('kora_mdt:server:reportOptions') or {}
         for _, report in ipairs(reports) do
             reportOptions[#reportOptions + 1] = {
                 value = tostring(report.id),
                 label = ('%s - %s'):format(report.title or 'Untitled', report.subject or 'Unknown'),
             }
         end
-        local cases = QB.callback.trigger('qbmdt:server:cases') or {}
+        local cases = Kora.callback.trigger('kora_mdt:server:cases') or {}
         for _, case in ipairs(cases) do
             caseOptions[#caseOptions + 1] = {
                 value = tostring(case.id),
@@ -232,13 +232,13 @@ local function openTerminal(role, policeBoss)
     end
 
     local function openPerson(citizenid)
-        local record, err = QB.callback.trigger('qbmdt:server:person', citizenid)
+        local record, err = Kora.callback.trigger('kora_mdt:server:person', citizenid)
         if not record then return message(false, nil, err or 'Citizen not found.') end
         return showResult(personContent(record))
     end
 
     local function openVehicle(plate)
-        local row, err = QB.callback.trigger('qbmdt:server:vehicle', plate)
+        local row, err = Kora.callback.trigger('kora_mdt:server:vehicle', plate)
         if not row then return message(false, nil, err or 'Vehicle not found.') end
         local alerts = {}
         for _, bolo in ipairs(row.bolos or {}) do alerts[#alerts + 1] = {
@@ -336,7 +336,7 @@ local function openTerminal(role, policeBoss)
             } } } } }
         if policeBoss then
             navigation[#navigation + 1] = { id = 'charges', label = 'Charges', icon = 'scale',
-                content = chargeManagementContent(QB.callback.trigger('qbmdt:server:manageCharges') or {}) }
+                content = chargeManagementContent(Kora.callback.trigger('kora_mdt:server:manageCharges') or {}) }
         end
     end
 
@@ -379,7 +379,7 @@ local function openTerminal(role, policeBoss)
     end
 
     local function refreshDashboard()
-        local data, dashboardErr = QB.callback.trigger('qbmdt:server:dashboard')
+        local data, dashboardErr = Kora.callback.trigger('kora_mdt:server:dashboard')
         if not data then return listFailed('dashboard', 1, 'the dashboard', dashboardErr) end
         local recent = {}
         for _, row in ipairs(data.recent or {}) do recent[#recent + 1] = {
@@ -399,9 +399,9 @@ local function openTerminal(role, policeBoss)
     end
 
     local function refreshReports()
-        local rows, err = QB.callback.trigger('qbmdt:server:reports')
+        local rows, err = Kora.callback.trigger('kora_mdt:server:reports')
         if not rows then return listFailed('reports', 2, 'reports', err) end
-        local optionRows = QB.callback.trigger('qbmdt:server:reportOptions')
+        local optionRows = Kora.callback.trigger('kora_mdt:server:reportOptions')
         if optionRows then
             for index = #reportOptions, 1, -1 do reportOptions[index] = nil end
             for _, row in ipairs(optionRows) do
@@ -425,7 +425,7 @@ local function openTerminal(role, policeBoss)
     end
 
     local function refreshCases()
-        local rows, err = QB.callback.trigger('qbmdt:server:cases')
+        local rows, err = Kora.callback.trigger('kora_mdt:server:cases')
         if not rows then return listFailed('cases', 2, 'cases', err) end
         for index = #caseOptions, 1, -1 do caseOptions[index] = nil end
         local output = {}
@@ -443,7 +443,7 @@ local function openTerminal(role, policeBoss)
     end
 
     local function refreshWarrants()
-        local rows, err = QB.callback.trigger('qbmdt:server:warrants')
+        local rows, err = Kora.callback.trigger('kora_mdt:server:warrants')
         if not rows then return listFailed('warrants', 2, 'warrants', err) end
         local output = {}
         for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), status = statusCell(row.status),
@@ -456,7 +456,7 @@ local function openTerminal(role, policeBoss)
     end
 
     local function refreshBolos()
-        local rows, err = QB.callback.trigger('qbmdt:server:bolos')
+        local rows, err = Kora.callback.trigger('kora_mdt:server:bolos')
         if not rows then return listFailed('bolos', 2, 'BOLOs', err) end
         local output = {}
         for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), status = statusCell(row.status),
@@ -475,7 +475,7 @@ local function openTerminal(role, policeBoss)
     end
 
     Kora.nui.registerApp({
-        id = 'qbmdt:terminal', title = role == 'medical' and 'Medical Records Terminal' or 'Mobile Data Terminal',
+        id = 'kora_mdt:terminal', title = role == 'medical' and 'Medical Records Terminal' or 'Mobile Data Terminal',
         description = role == 'medical' and 'Patient and treatment records' or 'Law enforcement operations and records',
         icon = role == 'medical' and 'heart-pulse' or 'monitor-smartphone', width = 1240, height = 820,
         navigation = navigation, footer = 'Every record is permission-checked by the server. Operational changes are audited.',
@@ -484,7 +484,7 @@ local function openTerminal(role, policeBoss)
             local itemId = context and context.itemId
 
             if selectedId == 'person:search' then
-                local rows, err = QB.callback.trigger('qbmdt:server:searchPeople', input.query)
+                local rows, err = Kora.callback.trigger('kora_mdt:server:searchPeople', input.query)
                 if not rows then return message(false, nil, err) end
                 return update('search', { title = 'Citizen search', description = ('Results for “%s”'):format(input.query), blocks = {
                     { type = 'actions', actions = lookupActions },
@@ -496,7 +496,7 @@ local function openTerminal(role, policeBoss)
             elseif selectedId == 'person:select' and itemId then
                 return openPerson(itemId)
             elseif selectedId == 'vehicle:search' and policeAccess then
-                local rows, err = QB.callback.trigger('qbmdt:server:searchVehicles', input.query)
+                local rows, err = Kora.callback.trigger('kora_mdt:server:searchVehicles', input.query)
                 if not rows then return message(false, nil, err) end
                 return update('search', { title = 'Vehicle search', description = ('Results for “%s”'):format(input.query), blocks = {
                     { type = 'actions', actions = lookupActions },
@@ -508,7 +508,7 @@ local function openTerminal(role, policeBoss)
             elseif selectedId == 'vehicle:select' and itemId and policeAccess then
                 return openVehicle(itemId)
             elseif selectedId == 'charges:list' and policeAccess then
-                local rows, err = QB.callback.trigger('qbmdt:server:charges')
+                local rows, err = Kora.callback.trigger('kora_mdt:server:charges')
                 if not rows then return message(false, nil, err) end
                 return showResult({ title = 'Penal code', description = 'Server-authorized charge catalogue.', blocks = { {
                     type = 'table', id = 'charges', searchable = true, pageSize = 12,
@@ -516,32 +516,32 @@ local function openTerminal(role, policeBoss)
                         { key = 'fine', label = 'Fine', align = 'right', sortable = true } }, rows = rows, empty = 'No charges configured.',
                 } } })
             elseif selectedId == 'charge:refresh' and policeBoss then
-                local rows, err = QB.callback.trigger('qbmdt:server:manageCharges')
+                local rows, err = Kora.callback.trigger('kora_mdt:server:manageCharges')
                 if not rows then return message(false, nil, err) end
                 return update('charges', chargeManagementContent(rows))
             elseif selectedId == 'charge:create' and policeBoss then
-                local ok, err = QB.callback.trigger('qbmdt:server:createCharge', input)
+                local ok, err = Kora.callback.trigger('kora_mdt:server:createCharge', input)
                 if not ok then return message(false, nil, err) end
-                setChargeOptions(QB.callback.trigger('qbmdt:server:charges') or {})
-                local managed = QB.callback.trigger('qbmdt:server:manageCharges') or {}
+                setChargeOptions(Kora.callback.trigger('kora_mdt:server:charges') or {})
+                local managed = Kora.callback.trigger('kora_mdt:server:manageCharges') or {}
                 return update('charges', chargeManagementContent(managed), { tone = 'success', message = 'Charge created.' })
             elseif selectedId == 'charge:select' and policeBoss and itemId then
-                local rows = QB.callback.trigger('qbmdt:server:manageCharges') or {}
+                local rows = Kora.callback.trigger('kora_mdt:server:manageCharges') or {}
                 for _, charge in ipairs(rows) do
                     if tostring(charge.code) == tostring(itemId) then selectedCharge = charge; break end
                 end
                 if not selectedCharge then return message(false, nil, 'Charge not found.') end
                 return showResult(chargeContent(selectedCharge))
             elseif selectedId == 'charge:edit' and policeBoss and selectedCharge then
-                local ok, err = QB.callback.trigger('qbmdt:server:updateCharge', selectedCharge.code, input.label, input.fine)
+                local ok, err = Kora.callback.trigger('kora_mdt:server:updateCharge', selectedCharge.code, input.label, input.fine)
                 if not ok then return message(false, nil, err) end
-                setChargeOptions(QB.callback.trigger('qbmdt:server:charges') or {})
-                for _, charge in ipairs(QB.callback.trigger('qbmdt:server:manageCharges') or {}) do
+                setChargeOptions(Kora.callback.trigger('kora_mdt:server:charges') or {})
+                for _, charge in ipairs(Kora.callback.trigger('kora_mdt:server:manageCharges') or {}) do
                     if tostring(charge.code) == tostring(selectedCharge.code) then selectedCharge = charge; break end
                 end
                 return showResult(chargeContent(selectedCharge), { tone = 'success', message = 'Charge updated.' })
             elseif selectedId == 'firearm:search' and policeAccess then
-                local row, err = QB.callback.trigger('qbmdt:server:shopFirearm', input.serial)
+                local row, err = Kora.callback.trigger('kora_mdt:server:shopFirearm', input.serial)
                 if not row then return message(false, nil, err or 'No registered firearm found.') end
                 return showResult({ title = row.weapon_name or input.serial, description = 'Firearm registration', blocks = { {
                     type = 'details', columns = 2, items = { { label = 'Serial', value = row.serial or input.serial },
@@ -553,17 +553,17 @@ local function openTerminal(role, policeBoss)
                 if failure then return message(false, nil, 'Could not refresh reports: ' .. failure) end
                 return update('reports', nil, { tone = 'success', message = 'Reports refreshed.' })
             elseif selectedId == 'report:create' and policeAccess then
-                local id, err = QB.callback.trigger('qbmdt:server:createReport', input)
+                local id, err = Kora.callback.trigger('kora_mdt:server:createReport', input)
                 if not id then return message(false, nil, err) end
                 local failure = refreshAll(refreshReports, refreshDashboard)
                 return update('reports', nil, savedNotice(('Incident report #%s created.'):format(id), failure))
             elseif (selectedId == 'report:select' or selectedId == 'report:open-linked') and itemId and policeAccess then
-                local row, err = QB.callback.trigger('qbmdt:server:report', itemId)
+                local row, err = Kora.callback.trigger('kora_mdt:server:report', itemId)
                 if not row then return message(false, nil, err or 'Report not found.') end
                 selectedReport = row
                 return showReport(row)
             elseif selectedId == 'report:close' and selectedReport and policeAccess then
-                local ok, err = QB.callback.trigger('qbmdt:server:closeReport', selectedReport.id)
+                local ok, err = Kora.callback.trigger('kora_mdt:server:closeReport', selectedReport.id)
                 if not ok then return message(false, nil, err) end
                 selectedReport.status = 'closed'
                 return update('reports', nil, savedNotice('Report closed.', refreshAll(refreshReports, refreshDashboard)))
@@ -572,33 +572,33 @@ local function openTerminal(role, policeBoss)
                 if failure then return message(false, nil, 'Could not refresh cases: ' .. failure) end
                 return update('cases', nil, { tone = 'success', message = 'Cases refreshed.' })
             elseif selectedId == 'case:attach-report' and policeAccess then
-                local ok, err = QB.callback.trigger('qbmdt:server:linkCaseReport', input.case_id, input.report_id)
+                local ok, err = Kora.callback.trigger('kora_mdt:server:linkCaseReport', input.case_id, input.report_id)
                 if not ok then return message(false, nil, err) end
                 return update('cases', nil, savedNotice('Report attached to case.', refreshAll(refreshCases)))
             elseif selectedId == 'case:create' and policeAccess then
-                local id, err = QB.callback.trigger('qbmdt:server:createCase', input)
+                local id, err = Kora.callback.trigger('kora_mdt:server:createCase', input)
                 if not id then return message(false, nil, err) end
                 local failure = refreshAll(refreshCases, refreshDashboard)
-                local row = QB.callback.trigger('qbmdt:server:case', id)
+                local row = Kora.callback.trigger('kora_mdt:server:case', id)
                 if row then selectedCase = row; return showResult(caseContent(row), savedNotice(('Case #%s opened. Add reports with + Add report.'):format(id), failure)) end
                 return update('cases', nil, savedNotice(('Case #%s opened.'):format(id), failure))
             elseif selectedId == 'case:select' and itemId and policeAccess then
-                local row, err = QB.callback.trigger('qbmdt:server:case', itemId)
+                local row, err = Kora.callback.trigger('kora_mdt:server:case', itemId)
                 if not row then return message(false, nil, err or 'Case not found.') end
                 selectedCase = row
                 return showResult(caseContent(row))
             elseif selectedId == 'case:link-report' and selectedCase and policeAccess then
-                local ok, err = QB.callback.trigger('qbmdt:server:linkCaseReport', selectedCase.id, input.report_id)
+                local ok, err = Kora.callback.trigger('kora_mdt:server:linkCaseReport', selectedCase.id, input.report_id)
                 if ok then
                     local failure = refreshAll(refreshCases)
-                    local row = QB.callback.trigger('qbmdt:server:case', selectedCase.id)
+                    local row = Kora.callback.trigger('kora_mdt:server:case', selectedCase.id)
                     if row then selectedCase = row; return showResult(caseContent(row), savedNotice('Report added. Use + Add report to attach another.', failure)) end
                     return update('cases', nil, savedNotice('Report linked to case.', failure))
                 end
                 return message(false, nil, err)
             elseif (selectedId == 'case:investigate' or selectedId == 'case:close' or selectedId == 'case:reopen') and selectedCase and policeAccess then
                 local state = selectedId == 'case:investigate' and 'investigating' or selectedId == 'case:close' and 'closed' or 'open'
-                local ok, err = QB.callback.trigger('qbmdt:server:updateCaseStatus', selectedCase.id, state)
+                local ok, err = Kora.callback.trigger('kora_mdt:server:updateCaseStatus', selectedCase.id, state)
                 if not ok then return message(false, nil, err) end
                 selectedCase.status = state
                 return update('cases', nil, savedNotice('Case marked ' .. state .. '.', refreshAll(refreshCases, refreshDashboard)))
@@ -607,12 +607,12 @@ local function openTerminal(role, policeBoss)
                 if failure then return message(false, nil, 'Could not refresh warrants: ' .. failure) end
                 return update('warrants', nil, { tone = 'success', message = 'Warrants refreshed.' })
             elseif selectedId == 'warrant:create' and policeAccess then
-                local id, err = QB.callback.trigger('qbmdt:server:createWarrant', input)
+                local id, err = Kora.callback.trigger('kora_mdt:server:createWarrant', input)
                 if not id then return message(false, nil, err) end
                 return update('warrants', nil, savedNotice(('Warrant #%s issued.'):format(id), refreshAll(refreshWarrants, refreshDashboard)))
             elseif selectedId == 'warrant:select' and itemId and policeAccess then
                 selectedWarrant = nil
-                for _, row in ipairs(QB.callback.trigger('qbmdt:server:warrants') or {}) do if tostring(row.id) == tostring(itemId) then selectedWarrant = row; break end end
+                for _, row in ipairs(Kora.callback.trigger('kora_mdt:server:warrants') or {}) do if tostring(row.id) == tostring(itemId) then selectedWarrant = row; break end end
                 if not selectedWarrant then return message(false, nil, 'Warrant not found.') end
                 local actions = {}
                 if selectedWarrant.status == 'active' then actions = {
@@ -627,7 +627,7 @@ local function openTerminal(role, policeBoss)
                 } } })
             elseif (selectedId == 'warrant:serve' or selectedId == 'warrant:revoke') and selectedWarrant and policeAccess then
                 local state = selectedId == 'warrant:serve' and 'served' or 'revoked'
-                local ok, err = QB.callback.trigger('qbmdt:server:closeWarrant', selectedWarrant.id, state)
+                local ok, err = Kora.callback.trigger('kora_mdt:server:closeWarrant', selectedWarrant.id, state)
                 if not ok then return message(false, nil, err) end
                 selectedWarrant.status = state
                 return update('warrants', nil, savedNotice('Warrant marked ' .. state .. '.', refreshAll(refreshWarrants, refreshDashboard)))
@@ -636,12 +636,12 @@ local function openTerminal(role, policeBoss)
                 if failure then return message(false, nil, 'Could not refresh BOLOs: ' .. failure) end
                 return update('bolos', nil, { tone = 'success', message = 'BOLOs refreshed.' })
             elseif selectedId == 'bolo:create' and policeAccess then
-                local id, err = QB.callback.trigger('qbmdt:server:createBolo', input)
+                local id, err = Kora.callback.trigger('kora_mdt:server:createBolo', input)
                 if not id then return message(false, nil, err or 'The BOLO could not be created. Check every field and try again.') end
                 return update('bolos', nil, savedNotice(('BOLO #%s created.'):format(id), refreshAll(refreshBolos, refreshDashboard)))
             elseif selectedId == 'bolo:select' and itemId and policeAccess then
                 selectedBolo = nil
-                for _, row in ipairs(QB.callback.trigger('qbmdt:server:bolos') or {}) do if tostring(row.id) == tostring(itemId) then selectedBolo = row; break end end
+                for _, row in ipairs(Kora.callback.trigger('kora_mdt:server:bolos') or {}) do if tostring(row.id) == tostring(itemId) then selectedBolo = row; break end end
                 if not selectedBolo then return message(false, nil, 'BOLO not found.') end
                 local actions = selectedBolo.status == 'active' and { { id = 'bolo:resolve', label = 'Resolve BOLO', icon = 'check-circle', variant = 'primary', confirm = 'Resolve this BOLO?' } } or {}
                 local details = { { label = 'status', value = tostring(selectedBolo.status or 'unknown') },
@@ -655,24 +655,24 @@ local function openTerminal(role, policeBoss)
                     type = 'details', columns = 2, items = details,
                 } } })
             elseif selectedId == 'bolo:resolve' and selectedBolo and policeAccess then
-                local ok, err = QB.callback.trigger('qbmdt:server:resolveBolo', selectedBolo.id)
+                local ok, err = Kora.callback.trigger('kora_mdt:server:resolveBolo', selectedBolo.id)
                 if not ok then return message(false, nil, err) end
                 selectedBolo.status = 'resolved'
                 return update('bolos', nil, savedNotice('BOLO resolved.', refreshAll(refreshBolos, refreshDashboard)))
             elseif selectedId == 'criminal:create' and criminalAccess then
-                local ok, err = QB.callback.trigger('qbmdt:server:addCriminal', input.citizenid, input.charge, input.notes)
+                local ok, err = Kora.callback.trigger('kora_mdt:server:addCriminal', input.citizenid, input.charge, input.notes)
                 return message(ok, 'Criminal record saved.', err)
             elseif selectedId == 'medical:create' and medicalAccess then
-                local ok, err = QB.callback.trigger('qbmdt:server:addMedical', input.citizenid, input.notes)
+                local ok, err = Kora.callback.trigger('kora_mdt:server:addMedical', input.citizenid, input.notes)
                 return message(ok, 'Medical record saved.', err)
             elseif selectedId == 'analysis:start' and criminalAccess then
-                QB.events.trigger('qbmdt:server:beginAnalysis', input.caseid)
+                Kora.events.trigger('kora_mdt:server:beginAnalysis', input.caseid)
                 return { notice = { tone = 'primary', message = 'Ballistic analysis started.' } }
             end
             return {}
         end,
     })
-    Kora.nui.openApp('qbmdt:terminal')
+    Kora.nui.openApp('kora_mdt:terminal')
 end
 
-RegisterNetEvent('qbmdt:client:open', openTerminal)
+RegisterNetEvent('kora_mdt:client:open', openTerminal)

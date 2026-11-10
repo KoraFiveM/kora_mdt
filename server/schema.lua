@@ -1,6 +1,6 @@
 local TS = { raw = 'CURRENT_TIMESTAMP' }
 
-QBMdtSchema = {
+KoraMdtSchema = {
     {
         name = 'kora_mdt_licences', collate = 'utf8mb4_unicode_ci',
         columns = {

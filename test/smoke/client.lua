@@ -30,7 +30,7 @@ function _G.GetEntityCoords() return pedCoords end
 function _G.joaat(name) return name end
 function _G.RemoveWeaponFromPed(ped, weapon) removedWeapons[#removedWeapons + 1] = weapon end
 function _G.GetResourceState(resource) return resource == 'kora_target' and targetState or 'missing' end
-_G.QB = {
+_G.Kora = {
     nui = {
         openInputDialog = function(fields, title)
             inputDialog = { fields = fields, title = title }
@@ -51,9 +51,9 @@ _G.QB = {
     callback = { trigger = function(name)
         local scripted = serverData[name]
         if scripted then return scripted.value, scripted.err end
-        if name == 'qbmdt:server:dashboard' then return { recent = {} } end
-        if name == 'qbmdt:server:reports' or name == 'qbmdt:server:cases'
-            or name == 'qbmdt:server:warrants' or name == 'qbmdt:server:bolos' then return {} end
+        if name == 'kora_mdt:server:dashboard' then return { recent = {} } end
+        if name == 'kora_mdt:server:reports' or name == 'kora_mdt:server:cases'
+            or name == 'kora_mdt:server:warrants' or name == 'kora_mdt:server:bolos' then return {} end
         return nil
     end },
     events = {
@@ -69,8 +69,8 @@ _G.QB = {
         remove = function(entity) removed[#removed + 1] = entity; return true end,
     },
 }
--- kora_lib sets QB = Kora (the same table).
-_G.Kora = _G.QB
+-- kora_lib sets Kora = Kora (the same table).
+_G.Kora = _G.Kora
 
 local exportImpls = {
     kora_target = {
@@ -133,7 +133,7 @@ h.test('client contains no hit-coordinate reporting path', function()
     local file = assert(io.open('client/main.lua', 'r'))
     local source = file:read('*a')
     file:close()
-    h.assertTrue(source:find('qbmdt:server:weaponLicenceHit', 1, true) == nil)
+    h.assertTrue(source:find('kora_mdt:server:weaponLicenceHit', 1, true) == nil)
     h.assertTrue(source:find('GetPedLastWeaponImpactCoord', 1, true) == nil)
 end)
 
@@ -167,13 +167,13 @@ h.test('/mdt enters through the authenticated kora_lib event channel', function(
     reset()
     commands[Config.mdt.command]()
     h.assertEqual(#serverEvents, 1)
-    h.assertEqual(serverEvents[1].name, 'qbmdt:server:open')
+    h.assertEqual(serverEvents[1].name, 'kora_mdt:server:open')
 end)
 
 h.test('police terminal exposes operational views with interactive tables', function()
     reset()
-    handlers['qbmdt:client:open']('police')
-    h.assertEqual(openedApp, 'qbmdt:terminal')
+    handlers['kora_mdt:client:open']('police')
+    h.assertEqual(openedApp, 'kora_mdt:terminal')
     h.assertEqual(registeredApp.navigation[1].id, 'dashboard')
     local byId = {}
     for _, view in ipairs(registeredApp.navigation) do byId[view.id] = view end
@@ -195,7 +195,7 @@ h.test('Ammu-Nation records clerk opens a typed serial-number field', function()
     h.assertTrue(inputDialog.fields[1].required)
 end)
 
-h.test('qbtarget restart restores range and clerk options without respawning the clerk', function()
+h.test('kora_target restart restores range and clerk options without respawning the clerk', function()
     h.assertTrue(type(hooks.onClientResourceStart) == 'function', 'dependency start listener must exist')
     h.assertTrue(type(hooks.onClientResourceStop) == 'function', 'dependency stop listener must exist')
     local ped, spawns = recordsClerk, clerkSpawns
@@ -218,7 +218,7 @@ h.test('qbtarget restart restores range and clerk options without respawning the
     h.assertEqual(recordsDistance, 2.0)
     reset()
     licenceZone.options[1].onSelect()
-    h.assertEqual(serverEvents[1].name, 'qbmdt:server:startWeaponLicence')
+    h.assertEqual(serverEvents[1].name, 'kora_mdt:server:startWeaponLicence')
     inputDialog = nil
     recordsClerkOption.onSelect()
     h.assertEqual(inputDialog.title, Config.mdt.firearms.shopRecords[1].label)
@@ -280,9 +280,9 @@ end)
 h.test('zero spawned range targets cancels the server session', function()
     reset()
     entityFactory = function() return nil, 'not loaded' end
-    handlers['qbmdt:client:weaponLicenceStart'](settings())
+    handlers['kora_mdt:client:weaponLicenceStart'](settings())
     h.assertEqual(#serverEvents, 1)
-    h.assertEqual(serverEvents[1].name, 'qbmdt:server:cancelWeaponLicence')
+    h.assertEqual(serverEvents[1].name, 'kora_mdt:server:cancelWeaponLicence')
 end)
 
 h.test('weapon licence result removes every target through kora_lib entities', function()
@@ -292,8 +292,8 @@ h.test('weapon licence result removes every target through kora_lib entities', f
         nextEntity = nextEntity + 1
         return nextEntity
     end
-    handlers['qbmdt:client:weaponLicenceStart'](settings())
-    handlers['qbmdt:client:weaponLicenceResult'](false, 3)
+    handlers['kora_mdt:client:weaponLicenceStart'](settings())
+    handlers['kora_mdt:client:weaponLicenceResult'](false, 3)
     h.assertEqual(#removed, #Config.mdt.weaponLicence.targetOffsets)
     h.assertEqual(removed[1], 101)
     h.assertEqual(removed[#removed], 103)
@@ -304,7 +304,7 @@ h.test('leaving the range building cancels once through the zone, without a poll
     trainingZones, timeouts, removedWeapons = {}, {}, {}
     entityFactory = function() return 400 end
     pedCoords = vector3(Config.mdt.weaponLicence.range.x, Config.mdt.weaponLicence.range.y, Config.mdt.weaponLicence.range.z)
-    handlers['qbmdt:client:weaponLicenceStart'](settings())
+    handlers['kora_mdt:client:weaponLicenceStart'](settings())
     h.assertEqual(#trainingZones, 1)
     local zone = trainingZones[1]
     h.assertEqual(zone.opts.points, Config.mdt.weaponLicence.zone.points)
@@ -316,10 +316,10 @@ h.test('leaving the range building cancels once through the zone, without a poll
     zone.opts.onExit(zone)
     zone.opts.onExit(zone)
     h.assertEqual(#serverEvents, 1)
-    h.assertEqual(serverEvents[1].name, 'qbmdt:server:cancelWeaponLicence')
+    h.assertEqual(serverEvents[1].name, 'kora_mdt:server:cancelWeaponLicence')
     h.assertEqual(#removedWeapons, 1)
     h.assertEqual(removedWeapons[1], Config.mdt.weaponLicence.weapon)
-    handlers['qbmdt:client:weaponLicenceResult'](false, 0)
+    handlers['kora_mdt:client:weaponLicenceResult'](false, 0)
     h.assertTrue(zone.removed, 'result must remove the range zone')
 end)
 
@@ -328,11 +328,11 @@ h.test('a session that starts outside the building is cancelled by the start che
     trainingZones, timeouts, removedWeapons = {}, {}, {}
     entityFactory = function() return 410 end
     pedCoords = vector3(0.0, 0.0, 0.0)
-    handlers['qbmdt:client:weaponLicenceStart'](settings())
+    handlers['kora_mdt:client:weaponLicenceStart'](settings())
     timeouts[1].callback()
     h.assertEqual(#serverEvents, 1)
-    h.assertEqual(serverEvents[1].name, 'qbmdt:server:cancelWeaponLicence')
-    handlers['qbmdt:client:weaponLicenceResult'](false, 0)
+    h.assertEqual(serverEvents[1].name, 'kora_mdt:server:cancelWeaponLicence')
+    handlers['kora_mdt:client:weaponLicenceResult'](false, 0)
     -- A stale start check or zone exit from the ended session is ignored.
     timeouts[1].callback()
     trainingZones[1].opts.onExit(trainingZones[1])
@@ -342,24 +342,24 @@ end)
 h.test('failed qualification cancels instead of submitting a result', function()
     reset()
     entityFactory = function() return 200 end
-    handlers['qbmdt:client:weaponLicenceStart'](settings())
+    handlers['kora_mdt:client:weaponLicenceStart'](settings())
     minigameResult = { success = false }
-    handlers['qbmdt:client:weaponLicenceQualification']('authorization-1')
+    handlers['kora_mdt:client:weaponLicenceQualification']('authorization-1')
     h.assertEqual(#serverEvents, 1)
-    h.assertEqual(serverEvents[1].name, 'qbmdt:server:cancelWeaponLicence')
+    h.assertEqual(serverEvents[1].name, 'kora_mdt:server:cancelWeaponLicence')
 end)
 
 h.test('successful qualification submits only its proof', function()
     reset()
     -- The preceding failure leaves client training active until the server's
     -- result arrives, so emulate that acknowledgement before starting again.
-    handlers['qbmdt:client:weaponLicenceResult'](false, 0)
+    handlers['kora_mdt:client:weaponLicenceResult'](false, 0)
     entityFactory = function() return 300 end
-    handlers['qbmdt:client:weaponLicenceStart'](settings())
+    handlers['kora_mdt:client:weaponLicenceStart'](settings())
     minigameResult = { success = true, proof = 'proof-1' }
-    handlers['qbmdt:client:weaponLicenceQualification']('authorization-2')
+    handlers['kora_mdt:client:weaponLicenceQualification']('authorization-2')
     h.assertEqual(#serverEvents, 1)
-    h.assertEqual(serverEvents[1].name, 'qbmdt:server:completeWeaponLicence')
+    h.assertEqual(serverEvents[1].name, 'kora_mdt:server:completeWeaponLicence')
     h.assertEqual(serverEvents[1].args[1], 'proof-1')
     h.assertEqual(serverEvents[1].args[2], nil)
 end)
@@ -371,7 +371,7 @@ end
 local function openPolice()
     reset()
     serverData = {}
-    handlers['qbmdt:client:open']('police')
+    handlers['kora_mdt:client:open']('police')
     local byId = {}
     for _, view in ipairs(registeredApp.navigation) do byId[view.id] = view end
     return byId
@@ -392,16 +392,16 @@ end)
 h.test('a new report appears in the reports list, dashboard timeline and open count in the same response', function()
     openPolice()
     local rows = { reportRow(1, 'Older', 'Jane Doe') }
-    serverData['qbmdt:server:reports'] = { value = rows }
-    serverData['qbmdt:server:dashboard'] = { value = { open_reports = 1, recent = { rows[1] } } }
-    handlers['qbmdt:client:open']('police')
+    serverData['kora_mdt:server:reports'] = { value = rows }
+    serverData['kora_mdt:server:dashboard'] = { value = { open_reports = 1, recent = { rows[1] } } }
+    handlers['kora_mdt:client:open']('police')
     local table0 = viewOf(registeredApp.navigation, 'reports').content.blocks[2]
     h.assertEqual(#table0.rows, 1)
 
     rows = { reportRow(5, 'Fresh', 'Joe Jones'), reportRow(1, 'Older', 'Jane Doe') }
-    serverData['qbmdt:server:reports'] = { value = rows }
-    serverData['qbmdt:server:dashboard'] = { value = { open_reports = 2, recent = rows } }
-    serverData['qbmdt:server:createReport'] = { value = 5 }
+    serverData['kora_mdt:server:reports'] = { value = rows }
+    serverData['kora_mdt:server:dashboard'] = { value = { open_reports = 2, recent = rows } }
+    serverData['kora_mdt:server:createReport'] = { value = 5 }
     local result = registeredApp.onAction('report:create', { value = { title = 'Fresh', narrative = 'n' } })
     h.assertEqual(result.notice.tone, 'success')
     h.assertEqual(result.notice.message, 'Incident report #5 created.')
@@ -436,7 +436,7 @@ h.test('BOLO details show the subject as typed and the linked citizen ID as its 
         for _, item in ipairs(items) do out[item.label] = item.value end
         return out
     end
-    serverData['qbmdt:server:bolos'] = { value = { { id = 5, subject_type = 'person', subject_identifier = 'JJ123456',
+    serverData['kora_mdt:server:bolos'] = { value = { { id = 5, subject_type = 'person', subject_identifier = 'JJ123456',
         subject_label = 'Joe Jones', linked_citizenid = 'JJ123456', title = 't', status = 'active', expires_at = '2026-11-08 18:09' } } }
     local byLabel = labels(detailItems(registeredApp.onAction('bolo:select', { itemId = '5' })))
     h.assertEqual(byLabel.Subject, 'Joe Jones')
@@ -450,12 +450,12 @@ end)
 
 h.test('closing a report refreshes the list and dashboard', function()
     openPolice()
-    serverData['qbmdt:server:report'] = { value = { id = 5, title = 'Fresh', status = 'open' } }
+    serverData['kora_mdt:server:report'] = { value = { id = 5, title = 'Fresh', status = 'open' } }
     registeredApp.onAction('report:select', { itemId = '5' })
-    serverData['qbmdt:server:closeReport'] = { value = true }
+    serverData['kora_mdt:server:closeReport'] = { value = true }
     local closed = reportRow(5, 'Fresh', 'Joe Jones'); closed.status = 'closed'
-    serverData['qbmdt:server:reports'] = { value = { closed } }
-    serverData['qbmdt:server:dashboard'] = { value = { open_reports = 0, recent = { closed } } }
+    serverData['kora_mdt:server:reports'] = { value = { closed } }
+    serverData['kora_mdt:server:dashboard'] = { value = { open_reports = 0, recent = { closed } } }
     local result = registeredApp.onAction('report:close', {})
     h.assertEqual(result.notice.message, 'Report closed.')
     local byId = {}
@@ -466,8 +466,8 @@ end)
 
 h.test('a failing reports query shows its error instead of "No reports found."', function()
     openPolice()
-    serverData['qbmdt:server:reports'] = { err = 'Could not load reports: Illegal mix of collations' }
-    handlers['qbmdt:client:open']('police')
+    serverData['kora_mdt:server:reports'] = { err = 'Could not load reports: Illegal mix of collations' }
+    handlers['kora_mdt:client:open']('police')
     local block = viewOf(registeredApp.navigation, 'reports').content.blocks[2]
     h.assertEqual(block.type, 'empty')
     h.assertTrue(block.description:find('Illegal mix of collations', 1, true) ~= nil)
@@ -475,7 +475,7 @@ h.test('a failing reports query shows its error instead of "No reports found."',
     h.assertEqual(result.notice.tone, 'destructive')
     h.assertTrue(result.notice.message:find('Illegal mix of collations', 1, true) ~= nil)
 
-    serverData['qbmdt:server:reports'] = { value = { reportRow(1, 'Older', 'Jane Doe') } }
+    serverData['kora_mdt:server:reports'] = { value = { reportRow(1, 'Older', 'Jane Doe') } }
     result = registeredApp.onAction('report:refresh', {})
     h.assertEqual(result.notice.message, 'Reports refreshed.')
     h.assertEqual(viewOf(result.update.navigation, 'reports').content.blocks[2].type, 'table')
@@ -489,27 +489,27 @@ h.test('warrant, BOLO and case creation refresh their lists and the dashboard', 
         for _, view in ipairs(result.update.navigation) do byId[view.id] = view end
         return byId
     end
-    serverData['qbmdt:server:createWarrant'] = { value = 3 }
-    serverData['qbmdt:server:warrants'] = { value = { { id = 3, citizenid = 'ABC', status = 'active', reason = 'r', expires_at = '2026-11-02 10:00' } } }
-    serverData['qbmdt:server:dashboard'] = { value = { active_warrants = 1, recent = {} } }
+    serverData['kora_mdt:server:createWarrant'] = { value = 3 }
+    serverData['kora_mdt:server:warrants'] = { value = { { id = 3, citizenid = 'ABC', status = 'active', reason = 'r', expires_at = '2026-11-02 10:00' } } }
+    serverData['kora_mdt:server:dashboard'] = { value = { active_warrants = 1, recent = {} } }
     local result = registeredApp.onAction('warrant:create', { value = {} })
     h.assertEqual(ids(result).warrants.content.blocks[2].rows[1].expires, '2026-11-02 10:00')
     h.assertEqual(ids(result).dashboard.content.blocks[1].items[3].value, 1)
-    serverData['qbmdt:server:createBolo'] = { value = 4 }
-    serverData['qbmdt:server:bolos'] = { value = { { id = 4, subject_type = 'person', subject_label = 'Jane Doe', title = 't', status = 'active', expires_at = '2026-11-02 10:00' } } }
+    serverData['kora_mdt:server:createBolo'] = { value = 4 }
+    serverData['kora_mdt:server:bolos'] = { value = { { id = 4, subject_type = 'person', subject_label = 'Jane Doe', title = 't', status = 'active', expires_at = '2026-11-02 10:00' } } }
     result = registeredApp.onAction('bolo:create', { value = {} })
     h.assertEqual(ids(result).bolos.content.blocks[2].rows[1].subject, 'Jane Doe')
-    serverData['qbmdt:server:cases'] = { value = {} }
-    serverData['qbmdt:server:createCase'] = { value = 9 }
-    serverData['qbmdt:server:cases'] = { value = { { id = 9, title = 'c', priority = 'normal', status = 'open', updated_at = '2026-11-01 10:00' } } }
+    serverData['kora_mdt:server:cases'] = { value = {} }
+    serverData['kora_mdt:server:createCase'] = { value = 9 }
+    serverData['kora_mdt:server:cases'] = { value = { { id = 9, title = 'c', priority = 'normal', status = 'open', updated_at = '2026-11-01 10:00' } } }
     result = registeredApp.onAction('case:create', { value = {} })
     h.assertEqual(ids(result).cases.content.blocks[2].rows[1].id, '9')
 end)
 
 h.test('a refresh failure after a successful create is reported, not hidden', function()
     openPolice()
-    serverData['qbmdt:server:createReport'] = { value = 6 }
-    serverData['qbmdt:server:reports'] = { err = 'Could not load reports: boom' }
+    serverData['kora_mdt:server:createReport'] = { value = 6 }
+    serverData['kora_mdt:server:reports'] = { err = 'Could not load reports: boom' }
     local result = registeredApp.onAction('report:create', { value = {} })
     h.assertEqual(result.notice.tone, 'warning')
     h.assertTrue(result.notice.message:find('#6 created', 1, true) ~= nil)
@@ -518,9 +518,9 @@ end)
 
 h.test('a table or number time is never stringified into the NUI', function()
     openPolice()
-    serverData['qbmdt:server:reports'] = { value = { { id = 1, title = 't', status = 'open', updated_at = { year = 2026 } } } }
+    serverData['kora_mdt:server:reports'] = { value = { { id = 1, title = 't', status = 'open', updated_at = { year = 2026 } } } }
     local result = registeredApp.onAction('report:refresh', {})
     h.assertEqual(viewOf(result.update.navigation, 'reports').content.blocks[2].rows[1].updated, '—')
 end)
 
-h.report('qbmdt client')
+h.report('kora_mdt client')

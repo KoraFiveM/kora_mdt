@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs qbmdt's focused state-machine tests with plain Lua (no busted).
+# Runs kora_mdt's focused state-machine tests with plain Lua (no busted).
 set -uo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

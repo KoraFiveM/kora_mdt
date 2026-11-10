@@ -51,7 +51,7 @@ local function likeTerm(value)
     return value
 end
 local function personExists(cid)
-    return cid and QB.sql.single('SELECT `citizenid` FROM `players` WHERE `citizenid` = ? AND `deleted_at` IS NULL', { cid }) ~= nil
+    return cid and Kora.sql.single('SELECT `citizenid` FROM `players` WHERE `citizenid` = ? AND `deleted_at` IS NULL', { cid }) ~= nil
 end
 local function logError(where, err)
     print(('^1[kora_mdt]^7 %s: %s'):format(where, tostring(err)))
@@ -61,7 +61,7 @@ end
 local function resolvePersonByName(name)
     name = cleanText(name, 128, false)
     if name == '' then return nil end
-    local rows = QB.sql.query([[SELECT `citizenid` FROM `players` WHERE `deleted_at` IS NULL AND (LOWER(TRIM(`name`)) = LOWER(?)
+    local rows = Kora.sql.query([[SELECT `citizenid` FROM `players` WHERE `deleted_at` IS NULL AND (LOWER(TRIM(`name`)) = LOWER(?)
         OR LOWER(IF(JSON_VALID(`charinfo`), CONCAT(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(`charinfo`, '$.firstname'))), ''), ' ',
             NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(`charinfo`, '$.lastname'))), '')), NULL)) = LOWER(?)) LIMIT 2]], { name, name }) or {}
     if #rows == 1 then return rows[1].citizenid end
@@ -104,7 +104,7 @@ end
 -- Runs a list query. A failure is logged and returned with its reason; callers must not
 -- turn it into an empty list, or a broken query reads as "No reports found."
 local function listQuery(what, sql, params)
-    local rows, err = QB.sql.query(sql, params)
+    local rows, err = Kora.sql.query(sql, params)
     if not rows then
         logError(what .. ' query failed', err)
         return nil, ('Could not load %s: %s'):format(what, cleanText(tostring(err or 'database query failed'), 200, false))
@@ -114,12 +114,12 @@ end
 local function audit(src, action, targetType, targetId, details)
     local actor = citizenId(src)
     if not actor then return end
-    QB.sql.insert([[INSERT INTO `kora_mdt_audit_log`
+    Kora.sql.insert([[INSERT INTO `kora_mdt_audit_log`
         (`actor_citizenid`,`action`,`target_type`,`target_id`,`details`) VALUES (?,?,?,?,?)]],
         { actor, action, targetType, tostring(targetId), cleanText(details, 1000, false) })
 end
 local function near(src, coords, distance)
-    return QB.distance.player(src, vector3(coords.x, coords.y, coords.z), distance)
+    return Kora.distance.player(src, vector3(coords.x, coords.y, coords.z), distance)
 end
 local function weaponLicenceZoneHeight()
     local zone, lowest = C.weaponLicence.zone, math.huge
@@ -160,7 +160,7 @@ local function nearWeaponLicenceZone(src, padding)
     return ped and ped ~= 0 and pointInWeaponLicenceZone(GetEntityCoords(ped), padding)
 end
 local function licenseNumber(cid)
-    local row = QB.sql.single('SELECT `licence_number` FROM `kora_mdt_licences` WHERE `citizenid` = ? AND `licence_type` = ?', { cid, 'weapon' })
+    local row = Kora.sql.single('SELECT `licence_number` FROM `kora_mdt_licences` WHERE `citizenid` = ? AND `licence_type` = ?', { cid, 'weapon' })
     return row and row.licence_number or nil
 end
 local function hasWeaponLicense(src)
@@ -168,18 +168,18 @@ local function hasWeaponLicense(src)
     return data and data.metadata and data.metadata.licences and data.metadata.licences.weapon == true and licenseNumber(data.citizenid) ~= nil
 end
 
-AddEventHandler('qbmdt:server:databaseReady', function()
+AddEventHandler('kora_mdt:server:databaseReady', function()
     for _, charge in ipairs(C.charges or {}) do
-        local _, err = QB.sql.execute('INSERT IGNORE INTO `kora_mdt_charges` (`code`,`label`,`fine`) VALUES (?,?,?)',
+        local _, err = Kora.sql.execute('INSERT IGNORE INTO `kora_mdt_charges` (`code`,`label`,`fine`) VALUES (?,?,?)',
             { charge.code, charge.label, math.max(0, math.floor(tonumber(charge.fine) or 0)) })
         if err then
-            print(('^1[qbmdt]^7 charge seed failed for %s: %s'):format(charge.code, tostring(err)))
+            print(('^1[kora_mdt]^7 charge seed failed for %s: %s'):format(charge.code, tostring(err)))
             return
         end
     end
-    local rows, err = QB.sql.query('SELECT `code`,`label`,`fine` FROM `kora_mdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`')
+    local rows, err = Kora.sql.query('SELECT `code`,`label`,`fine` FROM `kora_mdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`')
     if not rows then
-        print(('^1[qbmdt]^7 charge cache load failed: %s'):format(tostring(err or 'database query failed')))
+        print(('^1[kora_mdt]^7 charge cache load failed: %s'):format(tostring(err or 'database query failed')))
         return
     end
     chargeCache = rows
@@ -199,26 +199,26 @@ end)
 -- kora_inventory generates the weapon serial before it emits this notification.
 -- A transfer never re-registers the firearm: this is the original retail
 -- purchase record linking its serial, citizen ID, and licence number.
-AddEventHandler('qbinventory:server:itemPurchased', function(src, purchase)
+AddEventHandler('kora_inventory:server:itemPurchased', function(src, purchase)
     if type(purchase) ~= 'table' or purchase.shopId ~= C.firearms.shopId then return end
     if not exports.kora_core:getShared('weapons', purchase.itemName) then return end
     local cid, serial = citizenId(src), purchase.metadata and purchase.metadata.serial
     local licence = cid and licenseNumber(cid)
     if not cid or type(serial) ~= 'string' or not licence then return end
     CreateThread(function()
-        local _, err = QB.sql.execute([[INSERT INTO `kora_mdt_firearms`
+        local _, err = Kora.sql.execute([[INSERT INTO `kora_mdt_firearms`
             (`serial`,`weapon_name`,`owner_citizenid`,`licence_number`,`shop_id`) VALUES (?,?,?,?,?)
             ON DUPLICATE KEY UPDATE `owner_citizenid` = VALUES(`owner_citizenid`), `licence_number` = VALUES(`licence_number`)]],
             { serial, purchase.itemName, cid, licence, C.firearms.shopId })
-        if err then print(('^1[qbmdt]^7 firearm registration failed: %s'):format(tostring(err))) end
+        if err then print(('^1[kora_mdt]^7 firearm registration failed: %s'):format(tostring(err))) end
     end)
 end)
 
-QB.callback.register('qbmdt:server:person', function(src, wanted)
+Kora.callback.register('kora_mdt:server:person', function(src, wanted)
     wanted = cleanCid(wanted)
     local r = role(src)
     if not wanted or not r then return nil, 'not authorised' end
-    local identity = QB.sql.single('SELECT `citizenid`,`name`,`phone_number`,`charinfo`,`job`,`metadata` FROM `players` WHERE `citizenid` = ? AND `deleted_at` IS NULL', { wanted })
+    local identity = Kora.sql.single('SELECT `citizenid`,`name`,`phone_number`,`charinfo`,`job`,`metadata` FROM `players` WHERE `citizenid` = ? AND `deleted_at` IS NULL', { wanted })
     if not identity then return nil, 'person not found' end
     local metadata = type(identity.metadata) == 'string' and json.decode(identity.metadata) or (identity.metadata or {})
     local charinfo = type(identity.charinfo) == 'string' and json.decode(identity.charinfo) or (identity.charinfo or {})
@@ -235,54 +235,54 @@ QB.callback.register('qbmdt:server:person', function(src, wanted)
     }
     if r == 'police' or r == 'judge' then
         out.weaponLicence = licenseNumber(wanted)
-        out.firearms = QB.sql.query('SELECT `serial`,`weapon_name`,' .. ts('`purchased_at`') .. ' AS `purchased_at` FROM `kora_mdt_firearms` WHERE `owner_citizenid` = ? ORDER BY `purchased_at` DESC', { wanted }) or {}
-        out.criminal = QB.sql.query('SELECT `charge_code`,`notes`,' .. ts('`created_at`') .. ' AS `created_at` FROM `kora_mdt_criminal_records` WHERE `citizenid` = ? ORDER BY `created_at` DESC', { wanted }) or {}
-        out.reports = QB.sql.query([[SELECT `id`,`title`,`status`,]] .. ts('`created_at`') .. [[ AS `created_at` FROM `kora_mdt_reports`
+        out.firearms = Kora.sql.query('SELECT `serial`,`weapon_name`,' .. ts('`purchased_at`') .. ' AS `purchased_at` FROM `kora_mdt_firearms` WHERE `owner_citizenid` = ? ORDER BY `purchased_at` DESC', { wanted }) or {}
+        out.criminal = Kora.sql.query('SELECT `charge_code`,`notes`,' .. ts('`created_at`') .. ' AS `created_at` FROM `kora_mdt_criminal_records` WHERE `citizenid` = ? ORDER BY `created_at` DESC', { wanted }) or {}
+        out.reports = Kora.sql.query([[SELECT `id`,`title`,`status`,]] .. ts('`created_at`') .. [[ AS `created_at` FROM `kora_mdt_reports`
             WHERE `subject_citizenid` = ? ORDER BY `created_at` DESC LIMIT 25]], { wanted }) or {}
-        out.warrants = QB.sql.query([[SELECT `id`,`reason`,`expires_at` FROM `kora_mdt_warrants`
+        out.warrants = Kora.sql.query([[SELECT `id`,`reason`,`expires_at` FROM `kora_mdt_warrants`
             WHERE `citizenid` = ? AND `status` = 'active' AND `expires_at` > NOW() ORDER BY `expires_at`]], { wanted }) or {}
-        out.bolos = QB.sql.query([[SELECT `id`,`title`,`description`,`expires_at` FROM `kora_mdt_bolos`
+        out.bolos = Kora.sql.query([[SELECT `id`,`title`,`description`,`expires_at` FROM `kora_mdt_bolos`
             WHERE `subject_type` = 'person' AND `subject_identifier` = ? AND `status` = 'active'
             AND (`expires_at` IS NULL OR `expires_at` > NOW()) ORDER BY `created_at` DESC]], { wanted }) or {}
     end
     if r == 'medical' or r == 'judge' then
-        out.medical = QB.sql.query('SELECT `notes`,' .. ts('`created_at`') .. ' AS `created_at` FROM `kora_mdt_medical_records` WHERE `citizenid` = ? ORDER BY `created_at` DESC', { wanted }) or {}
+        out.medical = Kora.sql.query('SELECT `notes`,' .. ts('`created_at`') .. ' AS `created_at` FROM `kora_mdt_medical_records` WHERE `citizenid` = ? ORDER BY `created_at` DESC', { wanted }) or {}
     end
     return withTimes(out)
 end)
 
-QB.callback.register('qbmdt:server:vehicle', function(src, plate)
+Kora.callback.register('kora_mdt:server:vehicle', function(src, plate)
     if not can(src, 'police') then return nil, 'not authorised' end
     plate = type(plate) == 'string' and plate:gsub('^%s+', ''):gsub('%s+$', ''):upper() or ''
     if plate == '' or #plate > 15 then return nil, 'invalid plate' end
-    local vehicle = QB.sql.single([[SELECT v.`plate`,v.`model`,v.`citizenid`,v.`state`,v.`garage_id`,v.`impound_lot`,p.`name` AS `owner_name`
+    local vehicle = Kora.sql.single([[SELECT v.`plate`,v.`model`,v.`citizenid`,v.`state`,v.`garage_id`,v.`impound_lot`,p.`name` AS `owner_name`
         FROM `player_vehicles` v LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = v.`citizenid` COLLATE utf8mb4_unicode_ci
         WHERE v.`plate` = ? AND v.`deleted_at` IS NULL]], { plate })
     if vehicle then
-        vehicle.bolos = QB.sql.query([[SELECT `id`,`title`,`description`,`expires_at` FROM `kora_mdt_bolos`
+        vehicle.bolos = Kora.sql.query([[SELECT `id`,`title`,`description`,`expires_at` FROM `kora_mdt_bolos`
             WHERE `subject_type` = 'vehicle' AND `subject_identifier` = ? AND `status` = 'active'
             AND (`expires_at` IS NULL OR `expires_at` > NOW()) ORDER BY `created_at` DESC]], { plate }) or {}
     end
     return vehicle
 end)
 
-QB.callback.register('qbmdt:server:charges', function(src)
+Kora.callback.register('kora_mdt:server:charges', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     if not databaseReady then return nil, 'MDT database is still starting. Try again shortly.' end
     return chargeCache
 end)
 
-QB.callback.register('qbmdt:server:canManageCharges', function(src)
+Kora.callback.register('kora_mdt:server:canManageCharges', function(src)
     return isPoliceBoss(src)
 end)
 
-QB.callback.register('qbmdt:server:manageCharges', function(src)
+Kora.callback.register('kora_mdt:server:manageCharges', function(src)
     if not isPoliceBoss(src) then return nil, 'not authorised' end
     if not databaseReady then return nil, 'MDT database is still starting. Try again shortly.' end
-    return QB.sql.query('SELECT `code`,`label`,`fine`,`active` FROM `kora_mdt_charges` ORDER BY `label`,`code`')
+    return Kora.sql.query('SELECT `code`,`label`,`fine`,`active` FROM `kora_mdt_charges` ORDER BY `label`,`code`')
 end)
 
-QB.callback.register('qbmdt:server:createCharge', function(src, input)
+Kora.callback.register('kora_mdt:server:createCharge', function(src, input)
     if not isPoliceBoss(src) then return false, 'not authorised' end
     if not databaseReady or type(input) ~= 'table' then return false, 'invalid charge' end
     local code = cleanText(input.code, 32, true)
@@ -292,15 +292,15 @@ QB.callback.register('qbmdt:server:createCharge', function(src, input)
         return false, 'enter a valid code, label, and non-negative fine'
     end
     code = code:upper()
-    local _, err = QB.sql.execute('INSERT INTO `kora_mdt_charges` (`code`,`label`,`fine`,`active`) VALUES (?,?,?,1)',
+    local _, err = Kora.sql.execute('INSERT INTO `kora_mdt_charges` (`code`,`label`,`fine`,`active`) VALUES (?,?,?,1)',
         { code, label, math.floor(fine) })
     if err then return false, 'could not save charge (the code may already exist)' end
-    chargeCache = QB.sql.query('SELECT `code`,`label`,`fine` FROM `kora_mdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`') or chargeCache
+    chargeCache = Kora.sql.query('SELECT `code`,`label`,`fine` FROM `kora_mdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`') or chargeCache
     audit(src, 'charge.create', 'charge', code, label)
     return true
 end)
 
-QB.callback.register('qbmdt:server:updateCharge', function(src, code, label, fine)
+Kora.callback.register('kora_mdt:server:updateCharge', function(src, code, label, fine)
     if not isPoliceBoss(src) then return false, 'not authorised' end
     code = cleanText(code, 32, true)
     label = cleanText(label, 128, true)
@@ -310,18 +310,18 @@ QB.callback.register('qbmdt:server:updateCharge', function(src, code, label, fin
         return false, 'enter a valid charge name and non-negative fine'
     end
     code = code:upper()
-    if not QB.sql.single('SELECT `code` FROM `kora_mdt_charges` WHERE `code` = ?', { code }) then
+    if not Kora.sql.single('SELECT `code` FROM `kora_mdt_charges` WHERE `code` = ?', { code }) then
         return false, 'charge not found'
     end
-    local updated, err = QB.sql.execute('UPDATE `kora_mdt_charges` SET `label` = ?, `fine` = ? WHERE `code` = ?',
+    local updated, err = Kora.sql.execute('UPDATE `kora_mdt_charges` SET `label` = ?, `fine` = ? WHERE `code` = ?',
         { label, math.floor(fine), code })
     if err or updated == false then return false, err or 'could not update charge' end
-    chargeCache = QB.sql.query('SELECT `code`,`label`,`fine` FROM `kora_mdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`') or chargeCache
+    chargeCache = Kora.sql.query('SELECT `code`,`label`,`fine` FROM `kora_mdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`') or chargeCache
     audit(src, 'charge.update', 'charge', code, label)
     return true
 end)
 
-QB.callback.register('qbmdt:server:addCriminal', function(src, wanted, code, notes)
+Kora.callback.register('kora_mdt:server:addCriminal', function(src, wanted, code, notes)
     if not can(src, 'police') then return false, 'not authorised' end
     wanted = cleanCid(wanted)
     local selection = cleanText(code, 128, false)
@@ -331,18 +331,18 @@ QB.callback.register('qbmdt:server:addCriminal', function(src, wanted, code, not
         { citizenid = wanted, charge = selection, notes = notes })
     if missing then return false, missing end
     if not author then return false, 'author unavailable' end
-    local charge = QB.sql.single('SELECT `code` FROM `kora_mdt_charges` WHERE `active` = 1 AND (`code` = ? OR `label` = ?)',
+    local charge = Kora.sql.single('SELECT `code` FROM `kora_mdt_charges` WHERE `active` = 1 AND (`code` = ? OR `label` = ?)',
         { selection:upper(), selection })
     if not charge then return false, 'unknown charge' end
     if not personExists(wanted) then return false, 'citizen not found' end
-    local written, err = QB.sql.execute('INSERT INTO `kora_mdt_criminal_records` (`citizenid`,`charge_code`,`notes`,`author_citizenid`) VALUES (?,?,?,?)',
+    local written, err = Kora.sql.execute('INSERT INTO `kora_mdt_criminal_records` (`citizenid`,`charge_code`,`notes`,`author_citizenid`) VALUES (?,?,?,?)',
         { wanted, charge.code, notes, author })
     if not written then return false, err or 'database error' end
     audit(src, 'criminal.create', 'citizen', wanted, code)
     return true
 end)
 
-QB.callback.register('qbmdt:server:addMedical', function(src, wanted, notes)
+Kora.callback.register('kora_mdt:server:addMedical', function(src, wanted, notes)
     if not can(src, 'medical') then return false, 'not authorised' end
     wanted = cleanCid(wanted)
     local author = citizenId(src)
@@ -351,14 +351,14 @@ QB.callback.register('qbmdt:server:addMedical', function(src, wanted, notes)
     if missing then return false, missing end
     if not author then return false, 'author unavailable' end
     if not personExists(wanted) then return false, 'citizen not found' end
-    local written, err = QB.sql.execute('INSERT INTO `kora_mdt_medical_records` (`citizenid`,`notes`,`author_citizenid`) VALUES (?,?,?)',
+    local written, err = Kora.sql.execute('INSERT INTO `kora_mdt_medical_records` (`citizenid`,`notes`,`author_citizenid`) VALUES (?,?,?)',
         { wanted, notes, author })
     if not written then return false, err or 'database error' end
     audit(src, 'medical.create', 'citizen', wanted)
     return true
 end)
 
-QB.callback.register('qbmdt:server:shopFirearm', function(src, serial)
+Kora.callback.register('kora_mdt:server:shopFirearm', function(src, serial)
     serial = type(serial) == 'string' and serial:upper():sub(1, 96) or ''
     if serial == '' then return nil, 'serial is required' end
     if C.firearms.lookupMode ~= 'mdt' then
@@ -366,15 +366,15 @@ QB.callback.register('qbmdt:server:shopFirearm', function(src, serial)
         for _, counter in ipairs(C.firearms.shopRecords) do if near(src, counter.coords, 2.0) then validCounter = true; break end end
         if not validCounter then return nil, 'speak to the store records clerk' end
     elseif not can(src, 'police') then return nil, 'not authorised' end
-    return QB.sql.single('SELECT `serial`,`weapon_name`,`owner_citizenid`,`licence_number`,`purchased_at` FROM `kora_mdt_firearms` WHERE `serial` = ?', { serial })
+    return Kora.sql.single('SELECT `serial`,`weapon_name`,`owner_citizenid`,`licence_number`,`purchased_at` FROM `kora_mdt_firearms` WHERE `serial` = ?', { serial })
 end)
 
 -- Operational MDT data. These callbacks deliberately keep search limits and
 -- all mutations on the server; the AppShell is a presentation layer, not an
 -- authority boundary.
-QB.callback.register('qbmdt:server:dashboard', function(src)
+Kora.callback.register('kora_mdt:server:dashboard', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
-    local counts, countErr = QB.sql.single([[SELECT
+    local counts, countErr = Kora.sql.single([[SELECT
         (SELECT COUNT(*) FROM `kora_mdt_reports` WHERE `status` = 'open') AS `open_reports`,
         (SELECT COUNT(*) FROM `kora_mdt_cases` WHERE `status` <> 'closed') AS `open_cases`,
         (SELECT COUNT(*) FROM `kora_mdt_warrants` WHERE `status` = 'active' AND `expires_at` > NOW()) AS `active_warrants`,
@@ -390,28 +390,28 @@ QB.callback.register('qbmdt:server:dashboard', function(src)
     return counts
 end)
 
-QB.callback.register('qbmdt:server:searchPeople', function(src, query)
+Kora.callback.register('kora_mdt:server:searchPeople', function(src, query)
     if not role(src) then return nil, 'not authorised' end
     local term = likeTerm(query)
     if not term then return nil, 'enter at least two characters' end
-    return withTimes(QB.sql.query(([[SELECT `citizenid`,`name`,`phone_number`,`last_updated`
+    return withTimes(Kora.sql.query(([[SELECT `citizenid`,`name`,`phone_number`,`last_updated`
         FROM `players` WHERE `deleted_at` IS NULL
         AND (LOCATE(?,`citizenid`) > 0 OR LOCATE(?,`name`) > 0 OR LOCATE(?,COALESCE(`phone_number`,'')) > 0)
         ORDER BY `name` LIMIT %d]]):format(C.operations.searchLimit), { term, term, term }) or {})
 end)
 
-QB.callback.register('qbmdt:server:searchVehicles', function(src, query)
+Kora.callback.register('kora_mdt:server:searchVehicles', function(src, query)
     if not can(src, 'police') then return nil, 'not authorised' end
     local term = likeTerm(query)
     if not term then return nil, 'enter at least two characters' end
-    return QB.sql.query(([[SELECT v.`plate`,v.`model`,v.`citizenid`,v.`state`,p.`name` AS `owner_name`
+    return Kora.sql.query(([[SELECT v.`plate`,v.`model`,v.`citizenid`,v.`state`,p.`name` AS `owner_name`
         FROM `player_vehicles` v LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = v.`citizenid` COLLATE utf8mb4_unicode_ci AND p.`deleted_at` IS NULL
         WHERE v.`deleted_at` IS NULL AND (LOCATE(?,v.`plate`) > 0 OR LOCATE(?,v.`model`) > 0
             OR LOCATE(?,COALESCE(v.`citizenid`,'')) > 0 OR LOCATE(?,COALESCE(p.`name`,'')) > 0)
         ORDER BY v.`plate` LIMIT %d]]):format(C.operations.searchLimit), { term, term, term, term }) or {}
 end)
 
-QB.callback.register('qbmdt:server:reports', function(src)
+Kora.callback.register('kora_mdt:server:reports', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     return listQuery('reports', ([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`charge_code`,c.`label` AS `charge_label`,
         r.`subject_text`,r.`charge_text`,r.`author_citizenid`,]] .. ts('r.`updated_at`') .. [[ AS `updated_at`,p.`name` AS `subject_name`
@@ -420,7 +420,7 @@ QB.callback.register('qbmdt:server:reports', function(src)
         ORDER BY (r.`status` = 'open') DESC,r.`updated_at` DESC,r.`id` DESC LIMIT %d]]):format(C.operations.recentLimit))
 end)
 
-QB.callback.register('qbmdt:server:reportOptions', function(src)
+Kora.callback.register('kora_mdt:server:reportOptions', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     return listQuery('report options', [[SELECT r.`id`,r.`title`,
         COALESCE(p.`name`,r.`subject_citizenid`,r.`subject_text`,'Unknown') AS `subject`
@@ -429,11 +429,11 @@ QB.callback.register('qbmdt:server:reportOptions', function(src)
         ORDER BY r.`created_at` DESC,r.`id` DESC]])
 end)
 
-QB.callback.register('qbmdt:server:report', function(src, value)
+Kora.callback.register('kora_mdt:server:report', function(src, value)
     if not can(src, 'police') then return nil, 'not authorised' end
     local id = cleanId(value)
     if not id then return nil, 'invalid report' end
-    return withTimes(QB.sql.single([[SELECT r.`id`,r.`title`,r.`narrative`,r.`status`,r.`subject_citizenid`,r.`subject_text`,r.`charge_text`,r.`charge_code`,
+    return withTimes(Kora.sql.single([[SELECT r.`id`,r.`title`,r.`narrative`,r.`status`,r.`subject_citizenid`,r.`subject_text`,r.`charge_text`,r.`charge_code`,
         r.`author_citizenid`,DATE_FORMAT(r.`created_at`, '%Y-%m-%d %H:%i:%s') AS `created_at`,
         p.`name` AS `subject_name`,a.`name` AS `author_name`,c.`label` AS `charge_label`,c.`fine`
         FROM `kora_mdt_reports` r
@@ -493,8 +493,8 @@ local function createReport(src, input)
     local author = citizenId(src)
     if not author then return nil, 'Your character could not be identified. Reconnect and try again.' end
     -- A Lua table cannot hold nil, so absent optional values are bound as explicit SQL NULL.
-    local NULL = QB.sql.NULL
-    local id, err = QB.sql.insert([[INSERT INTO `kora_mdt_reports`
+    local NULL = Kora.sql.NULL
+    local id, err = Kora.sql.insert([[INSERT INTO `kora_mdt_reports`
         (`title`,`narrative`,`subject_citizenid`,`subject_text`,`charge_code`,`charge_text`,`author_citizenid`) VALUES (?,?,?,?,?,?,?)]],
         { title, narrative, subject or NULL, subjectFree or NULL, chargeCode or NULL, chargeFree or NULL, author })
     if not id then
@@ -502,7 +502,7 @@ local function createReport(src, input)
         return nil, 'The report could not be saved (database error). Ask an administrator to check the server console.'
     end
     if chargeCode and subject then
-        local _, recordErr = QB.sql.insert([[INSERT INTO `kora_mdt_criminal_records`
+        local _, recordErr = Kora.sql.insert([[INSERT INTO `kora_mdt_criminal_records`
             (`citizenid`,`charge_code`,`notes`,`author_citizenid`) VALUES (?,?,?,?)]],
             { subject, chargeCode, ('Report #%s: %s'):format(id, title):sub(1, 1000), author })
         if recordErr then logError('createReport criminal record insert failed', recordErr) end
@@ -511,7 +511,7 @@ local function createReport(src, input)
     return id
 end
 
-QB.callback.register('qbmdt:server:createReport', function(src, input)
+Kora.callback.register('kora_mdt:server:createReport', function(src, input)
     if not databaseReady then return nil, 'MDT database is still starting. Try again shortly.' end
     if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
     local ok, id, err = pcall(createReport, src, input)
@@ -522,35 +522,35 @@ QB.callback.register('qbmdt:server:createReport', function(src, input)
     return id, err
 end)
 
-QB.callback.register('qbmdt:server:closeReport', function(src, value)
+Kora.callback.register('kora_mdt:server:closeReport', function(src, value)
     if not can(src, 'police') then return false, 'not authorised' end
     local id = cleanId(value)
     if not id then return false, 'invalid report' end
-    local changed, err = QB.sql.update([[UPDATE `kora_mdt_reports` SET `status` = 'closed'
+    local changed, err = Kora.sql.update([[UPDATE `kora_mdt_reports` SET `status` = 'closed'
         WHERE `id` = ? AND `status` = 'open']], { id })
     if not changed or changed < 1 then return false, err or 'report is already closed' end
     audit(src, 'report.close', 'report', id)
     return true
 end)
 
-QB.callback.register('qbmdt:server:cases', function(src)
+Kora.callback.register('kora_mdt:server:cases', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     return listQuery('cases', ([[SELECT c.`id`,c.`title`,c.`priority`,c.`status`,c.`lead_citizenid`,]] .. ts('c.`updated_at`') .. [[ AS `updated_at`,
         (SELECT COUNT(*) FROM `kora_mdt_case_reports` cr WHERE cr.`case_id` = c.`id`) AS `report_count`
         FROM `kora_mdt_cases` c ORDER BY (c.`status` <> 'closed') DESC,c.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit))
 end)
 
-QB.callback.register('qbmdt:server:case', function(src, value)
+Kora.callback.register('kora_mdt:server:case', function(src, value)
     if not can(src, 'police') then return nil, 'not authorised' end
     local id = cleanId(value)
     if not id then return nil, 'invalid case' end
-    local row = QB.sql.single([[SELECT c.`id`,c.`title`,c.`summary`,c.`priority`,c.`status`,c.`lead_citizenid`,
+    local row = Kora.sql.single([[SELECT c.`id`,c.`title`,c.`summary`,c.`priority`,c.`status`,c.`lead_citizenid`,
         DATE_FORMAT(c.`created_at`, '%Y-%m-%d %H:%i:%s') AS `created_at`,
         DATE_FORMAT(c.`updated_at`, '%Y-%m-%d %H:%i:%s') AS `updated_at`,p.`name` AS `lead_name` FROM `kora_mdt_cases` c
         LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = c.`lead_citizenid` COLLATE utf8mb4_unicode_ci WHERE c.`id` = ?]], { id })
     if not row then return nil, 'case not found' end
     withTimes(row)
-    row.reports = QB.sql.query([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,
+    row.reports = Kora.sql.query([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,
         DATE_FORMAT(r.`updated_at`, '%Y-%m-%d %H:%i:%s') AS `updated_at`
         FROM `kora_mdt_case_reports` cr JOIN `kora_mdt_reports` r ON r.`id` = cr.`report_id`
         WHERE cr.`case_id` = ? ORDER BY r.`updated_at` DESC]], { id }) or {}
@@ -558,7 +558,7 @@ QB.callback.register('qbmdt:server:case', function(src, value)
     return row
 end)
 
-QB.callback.register('qbmdt:server:createCase', function(src, input)
+Kora.callback.register('kora_mdt:server:createCase', function(src, input)
     if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
     local title = cleanText(input.title, 160, false)
     local summary = cleanText(input.summary, 8000, false)
@@ -581,7 +581,7 @@ QB.callback.register('qbmdt:server:createCase', function(src, input)
             local reportId = cleanId(value)
             if not reportId then return nil, 'invalid initial report' end
             if not seenReports[reportId] then
-                if not QB.sql.single('SELECT `id` FROM `kora_mdt_reports` WHERE `id` = ?', { reportId }) then
+                if not Kora.sql.single('SELECT `id` FROM `kora_mdt_reports` WHERE `id` = ?', { reportId }) then
                     return nil, 'initial report not found'
                 end
                 seenReports[reportId] = true
@@ -591,34 +591,34 @@ QB.callback.register('qbmdt:server:createCase', function(src, input)
     end
 
     local lead = citizenId(src)
-    local id, err = QB.sql.insert([[INSERT INTO `kora_mdt_cases`
+    local id, err = Kora.sql.insert([[INSERT INTO `kora_mdt_cases`
         (`title`,`summary`,`priority`,`lead_citizenid`) VALUES (?,?,?,?)]], { title, summary, priority, lead })
     if not id then return nil, err or 'database error' end
     for _, reportId in ipairs(reportIds) do
-        QB.sql.execute('INSERT IGNORE INTO `kora_mdt_case_reports` (`case_id`,`report_id`) VALUES (?,?)', { id, reportId })
+        Kora.sql.execute('INSERT IGNORE INTO `kora_mdt_case_reports` (`case_id`,`report_id`) VALUES (?,?)', { id, reportId })
     end
     audit(src, 'case.create', 'case', id, title)
     return id
 end)
 
-QB.callback.register('qbmdt:server:updateCaseStatus', function(src, value, status)
+Kora.callback.register('kora_mdt:server:updateCaseStatus', function(src, value, status)
     if not can(src, 'police') then return false, 'not authorised' end
     local id = cleanId(value)
     local states = { open = true, investigating = true, closed = true }
     if not id or not states[status] then return false, 'invalid case status' end
-    local changed, err = QB.sql.update('UPDATE `kora_mdt_cases` SET `status` = ? WHERE `id` = ? AND `status` <> ?', { status, id, status })
+    local changed, err = Kora.sql.update('UPDATE `kora_mdt_cases` SET `status` = ? WHERE `id` = ? AND `status` <> ?', { status, id, status })
     if not changed or changed < 1 then return false, err or 'case already has that status' end
     audit(src, 'case.status', 'case', id, status)
     return true
 end)
 
-QB.callback.register('qbmdt:server:linkCaseReport', function(src, caseValue, reportValue)
+Kora.callback.register('kora_mdt:server:linkCaseReport', function(src, caseValue, reportValue)
     if not can(src, 'police') then return false, 'not authorised' end
     local caseId, reportId = cleanId(caseValue), cleanId(reportValue)
     if not caseId or not reportId then return false, 'invalid case or report' end
-    if not QB.sql.single('SELECT `id` FROM `kora_mdt_cases` WHERE `id` = ?', { caseId }) then return false, 'case not found' end
-    if not QB.sql.single('SELECT `id` FROM `kora_mdt_reports` WHERE `id` = ?', { reportId }) then return false, 'report not found' end
-    local result, err = QB.sql.execute('INSERT IGNORE INTO `kora_mdt_case_reports` (`case_id`,`report_id`) VALUES (?,?)', { caseId, reportId })
+    if not Kora.sql.single('SELECT `id` FROM `kora_mdt_cases` WHERE `id` = ?', { caseId }) then return false, 'case not found' end
+    if not Kora.sql.single('SELECT `id` FROM `kora_mdt_reports` WHERE `id` = ?', { reportId }) then return false, 'report not found' end
+    local result, err = Kora.sql.execute('INSERT IGNORE INTO `kora_mdt_case_reports` (`case_id`,`report_id`) VALUES (?,?)', { caseId, reportId })
     if not result then return false, err or 'database error' end
     local affectedRows = type(result) == 'table' and tonumber(result.affectedRows) or tonumber(result)
     if affectedRows == 0 then return false, 'report is already linked' end
@@ -626,7 +626,7 @@ QB.callback.register('qbmdt:server:linkCaseReport', function(src, caseValue, rep
     return true
 end)
 
-QB.callback.register('qbmdt:server:warrants', function(src)
+Kora.callback.register('kora_mdt:server:warrants', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     return listQuery('warrants', ([[SELECT w.`id`,w.`citizenid`,w.`reason`,
         IF(w.`status` = 'active' AND w.`expires_at` <= NOW(),'expired',w.`status`) AS `status`,
@@ -635,7 +635,7 @@ QB.callback.register('qbmdt:server:warrants', function(src)
         ORDER BY (w.`status` = 'active' AND w.`expires_at` > NOW()) DESC,w.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit))
 end)
 
-QB.callback.register('qbmdt:server:createWarrant', function(src, input)
+Kora.callback.register('kora_mdt:server:createWarrant', function(src, input)
     if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
     local target = cleanCid(input.citizenid)
     local reason = cleanText(input.reason, 1000, false)
@@ -643,7 +643,7 @@ QB.callback.register('qbmdt:server:createWarrant', function(src, input)
     local missing = missingRequired('warrant', { 'citizenid', 'reason' }, { citizenid = target, reason = reason })
     if missing then return nil, missing end
     if not personExists(target) then return nil, 'Citizen ID not found. Check the citizen ID.' end
-    local id, err = QB.sql.insert([[INSERT INTO `kora_mdt_warrants`
+    local id, err = Kora.sql.insert([[INSERT INTO `kora_mdt_warrants`
         (`citizenid`,`reason`,`author_citizenid`,`expires_at`) VALUES (?,?,?,DATE_ADD(NOW(), INTERVAL ? DAY))]],
         { target, reason, citizenId(src), days })
     if not id then return nil, err or 'database error' end
@@ -651,11 +651,11 @@ QB.callback.register('qbmdt:server:createWarrant', function(src, input)
     return id
 end)
 
-QB.callback.register('qbmdt:server:closeWarrant', function(src, value, status)
+Kora.callback.register('kora_mdt:server:closeWarrant', function(src, value, status)
     if not can(src, 'police') then return false, 'not authorised' end
     local id = cleanId(value)
     if not id or (status ~= 'served' and status ~= 'revoked') then return false, 'invalid warrant action' end
-    local changed, err = QB.sql.update([[UPDATE `kora_mdt_warrants` SET `status` = ?,`closed_by_citizenid` = ?
+    local changed, err = Kora.sql.update([[UPDATE `kora_mdt_warrants` SET `status` = ?,`closed_by_citizenid` = ?
         WHERE `id` = ? AND `status` = 'active' AND `expires_at` > NOW()]], { status, citizenId(src), id })
     if not changed or changed < 1 then return false, err or 'warrant is not active' end
     audit(src, 'warrant.' .. status, 'warrant', id)
@@ -677,7 +677,7 @@ local function boloSubject(row)
     return identifier
 end
 
-Kora.callback.register('qbmdt:server:bolos', function(src)
+Kora.callback.register('kora_mdt:server:bolos', function(src)
     if not can(src, 'police') then return nil, 'not authorised' end
     local rows, err = listQuery('BOLOs', ([[SELECT b.`id`,b.`subject_type`,b.`subject_identifier`,b.`subject_text`,
         b.`subject_label` AS `legacy_label`,p.`name` AS `linked_name`,p.`citizenid` AS `linked_citizenid`,
@@ -739,7 +739,7 @@ local function createBolo(src, input)
     return id
 end
 
-QB.callback.register('qbmdt:server:createBolo', function(src, input)
+Kora.callback.register('kora_mdt:server:createBolo', function(src, input)
     if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
     local ok, id, err = pcall(createBolo, src, input)
     if not ok then
@@ -749,11 +749,11 @@ QB.callback.register('qbmdt:server:createBolo', function(src, input)
     return id, err
 end)
 
-QB.callback.register('qbmdt:server:resolveBolo', function(src, value)
+Kora.callback.register('kora_mdt:server:resolveBolo', function(src, value)
     if not can(src, 'police') then return false, 'not authorised' end
     local id = cleanId(value)
     if not id then return false, 'invalid BOLO' end
-    local changed, err = QB.sql.update("UPDATE `kora_mdt_bolos` SET `status` = 'resolved' WHERE `id` = ? AND `status` = 'active'", { id })
+    local changed, err = Kora.sql.update("UPDATE `kora_mdt_bolos` SET `status` = 'resolved' WHERE `id` = ? AND `status` = 'active'", { id })
     if not changed or changed < 1 then return false, err or 'BOLO is not active' end
     audit(src, 'bolo.resolve', 'bolo', id)
     return true
@@ -776,21 +776,21 @@ local function authorizeAnalysisStage(src, stage)
     local opts = {}
     for key, value in pairs(definition.opts or {}) do opts[key] = value end
     if definition.game == 'pinpad' then opts.numbers = tostring(math.random(1000, 9999)) end
-    return QB.minigames.authorizeProof(src, definition.game, opts)
+    return Kora.minigames.authorizeProof(src, definition.game, opts)
 end
 
-QB.events.register('qbmdt:server:open', function(src)
+Kora.events.register('kora_mdt:server:open', function(src)
     local userRole = role(src)
     if not userRole then
-        return QB.notify.send(src, {
+        return Kora.notify.send(src, {
             title = 'MDT',
             message = 'You must be on duty as police, EMS, or a judge to use the MDT.',
             type = 'error',
         })
     end
-    TriggerClientEvent('qbmdt:client:open', src, userRole, isPoliceBoss(src))
+    TriggerClientEvent('kora_mdt:client:open', src, userRole, isPoliceBoss(src))
 end, { rateLimit = { max = 4, window = 2000 } })
-QB.events.register('qbmdt:server:beginAnalysis', function(src, caseId)
+Kora.events.register('kora_mdt:server:beginAnalysis', function(src, caseId)
     if not can(src, 'police') or type(caseId) ~= 'string' then return end
     local existing = analysis[src]
     if existing and existing.expiresAt < GetGameTimer() then analysis[src] = nil; existing = nil end
@@ -808,30 +808,30 @@ QB.events.register('qbmdt:server:beginAnalysis', function(src, caseId)
     SetTimeout(C.analysis.ttl + 1, function()
         if analysis[src] == state then analysis[src] = nil end
     end)
-    TriggerClientEvent('qbmdt:client:analysisStage', src, 1, authorization)
+    TriggerClientEvent('kora_mdt:client:analysisStage', src, 1, authorization)
 end, { rateLimit = { max = 2, window = 3000 } })
-QB.events.register('qbmdt:server:cancelAnalysis', function(src)
+Kora.events.register('kora_mdt:server:cancelAnalysis', function(src)
     analysis[src] = nil
 end, { rateLimit = { max = 4, window = 3000 } })
-QB.events.register('qbmdt:server:analysisStage', function(src, token)
+Kora.events.register('kora_mdt:server:analysisStage', function(src, token)
     local state = analysis[src]
     if not state or type(token) ~= 'string' then return end
     if state.expiresAt < GetGameTimer() or not can(src, 'police')
         or not hasEvidenceCase(src, state.caseId) then analysis[src] = nil; return end
 
     local definition = C.analysis.stages[state.stage]
-    if not definition or not QB.minigames.consumeProof(src, token,
+    if not definition or not Kora.minigames.consumeProof(src, token,
         definition.game, state.authorization) then return end
 
     state.stage = state.stage + 1
     if state.stage <= #C.analysis.stages then
         state.authorization = authorizeAnalysisStage(src, state.stage)
         if not state.authorization then analysis[src] = nil; return end
-        return TriggerClientEvent('qbmdt:client:analysisStage', src, state.stage, state.authorization)
+        return TriggerClientEvent('kora_mdt:client:analysisStage', src, state.stage, state.authorization)
     end
     local row = exports.kora_police:GetBallisticCasing(state.caseId)
     analysis[src] = nil
-    if row then TriggerClientEvent('qbmdt:client:analysisComplete', src, { caseId = state.caseId, weaponSerial = row.weapon_serial, weapon = row.weapon_name }) end
+    if row then TriggerClientEvent('kora_mdt:client:analysisComplete', src, { caseId = state.caseId, weaponSerial = row.weapon_serial, weapon = row.weapon_name }) end
 end, { rateLimit = { max = 5, window = 5000 } })
 
 local function issueWeaponLicence(src, state)
@@ -839,7 +839,7 @@ local function issueWeaponLicence(src, state)
     if cid ~= state.citizenid or hasWeaponLicense(src) then return false end
 
     local number = ('WPN-%s-%04d'):format(cid:sub(-6):upper(), math.random(0, 9999))
-    local written = QB.sql.execute([[INSERT INTO `kora_mdt_licences`
+    local written = Kora.sql.execute([[INSERT INTO `kora_mdt_licences`
         (`citizenid`,`licence_type`,`licence_number`) VALUES (?,?,?)
         ON DUPLICATE KEY UPDATE `licence_number` = VALUES(`licence_number`)]], { cid, 'weapon', number })
     if not written then return false end
@@ -861,7 +861,7 @@ local function finishTraining(src, state, passed, silent)
 
     passed = passed == true and issueWeaponLicence(src, state)
     if training[src] == state then training[src] = nil end
-    if not silent then TriggerClientEvent('qbmdt:client:weaponLicenceResult', src, passed, state.shots) end
+    if not silent then TriggerClientEvent('kora_mdt:client:weaponLicenceResult', src, passed, state.shots) end
 end
 
 local function stillEligible(src, state)
@@ -874,25 +874,25 @@ end
 local function beginQualification(src, state)
     if training[src] ~= state or state.authorization then return end
     local definition = C.weaponLicence.qualification
-    local authorization = QB.minigames.authorizeProof(src, definition.game, definition.opts)
+    local authorization = Kora.minigames.authorizeProof(src, definition.game, definition.opts)
     if not authorization then return finishTraining(src, state, false) end
     state.authorization = authorization
-    TriggerClientEvent('qbmdt:client:weaponLicenceQualification', src, authorization)
+    TriggerClientEvent('kora_mdt:client:weaponLicenceQualification', src, authorization)
 end
 
-QB.events.register('qbmdt:server:startWeaponLicence', function(src)
+Kora.events.register('kora_mdt:server:startWeaponLicence', function(src)
     if training[src] then
-        return QB.notify.send(src, { title = 'Weapon licence', message = 'A range session is already in progress.', type = 'error' })
+        return Kora.notify.send(src, { title = 'Weapon licence', message = 'A range session is already in progress.', type = 'error' })
     end
     if not nearWeaponLicenceZone(src, C.weaponLicence.interactionDistance) then
-        return QB.notify.send(src, { title = 'Weapon licence', message = 'Move closer to the range marker.', type = 'error' })
+        return Kora.notify.send(src, { title = 'Weapon licence', message = 'Move closer to the range marker.', type = 'error' })
     end
 
     local cid = citizenId(src)
     local bucket = GetPlayerRoutingBucket(src)
     if not cid then return end
     if hasWeaponLicense(src) then
-        return QB.notify.send(src, { title = 'Weapon licence', message = 'You already hold a weapon licence.', type = 'error' })
+        return Kora.notify.send(src, { title = 'Weapon licence', message = 'You already hold a weapon licence.', type = 'error' })
     end
 
     local state = {
@@ -903,11 +903,11 @@ QB.events.register('qbmdt:server:startWeaponLicence', function(src)
     }
     local started, startErr = exports.kora_inventory:StartTrainingWeapon(src, C.weaponLicence.weapon, C.weaponLicence.shots)
     if not started then
-        return QB.notify.send(src, { title = 'Weapon licence', message = startErr or 'The range is unavailable.', type = 'error' })
+        return Kora.notify.send(src, { title = 'Weapon licence', message = startErr or 'The range is unavailable.', type = 'error' })
     end
 
     training[src] = state
-    TriggerClientEvent('qbmdt:client:weaponLicenceStart', src, {
+    TriggerClientEvent('kora_mdt:client:weaponLicenceStart', src, {
         targetModel = C.weaponLicence.targetModel,
         targetHeading = C.weaponLicence.targetHeading,
         range = C.weaponLicence.range,
@@ -920,7 +920,7 @@ QB.events.register('qbmdt:server:startWeaponLicence', function(src)
     end)
 end, { rateLimit = { max = 1, window = 2000 } })
 
-AddEventHandler('qbinventory:server:trainingRoundFired', function(src, round)
+AddEventHandler('kora_inventory:server:trainingRoundFired', function(src, round)
     local state = training[src]
     if not state or type(round) ~= 'table' or round.owner ~= GetCurrentResourceName()
         or round.weapon ~= C.weaponLicence.weapon or round.shot ~= state.shots + 1 then return end
@@ -933,16 +933,16 @@ AddEventHandler('qbinventory:server:trainingRoundFired', function(src, round)
     if state.shots >= C.weaponLicence.shots then finishTraining(src, state, true) end
 end)
 
-QB.events.register('qbmdt:server:completeWeaponLicence', function(src, proof)
+Kora.events.register('kora_mdt:server:completeWeaponLicence', function(src, proof)
     local state = training[src]
     local definition = C.weaponLicence.qualification
     if not state or state.shots < C.weaponLicence.shots or type(proof) ~= 'string'
         or not stillEligible(src, state) or not state.authorization then return end
-    if not QB.minigames.consumeProof(src, proof, definition.game, state.authorization) then return end
+    if not Kora.minigames.consumeProof(src, proof, definition.game, state.authorization) then return end
     finishTraining(src, state, true)
 end, { rateLimit = { max = 3, window = 5000 } })
 
-QB.events.register('qbmdt:server:cancelWeaponLicence', function(src)
+Kora.events.register('kora_mdt:server:cancelWeaponLicence', function(src)
     local state = training[src]
     if state then finishTraining(src, state, false) end
 end, { rateLimit = { max = 3, window = 5000 } })

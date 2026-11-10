@@ -104,20 +104,20 @@ Config.mdt = {
 }
 
 -- Registers this resource-owned configuration with kora_lib without changing its public Config table.
-if QB and QB.config and QB.config.adopt then
-    Config.mdt.roles.policeJobs = QB.config.map(Config.mdt.roles.policeJobs, QB.config.boolean(false), {
+if Kora and Kora.config and Kora.config.adopt then
+    Config.mdt.roles.policeJobs = Kora.config.map(Config.mdt.roles.policeJobs, Kora.config.boolean(false), {
         label = 'Police jobs',
         description = 'Lists the job names that receive police access to the MDT. Use the job name as the key and true as the value; removing a row revokes that job’s police role after the resource restarts.',
     })
-    Config.mdt.roles.medicalJobs = QB.config.map(Config.mdt.roles.medicalJobs, QB.config.boolean(false), {
+    Config.mdt.roles.medicalJobs = Kora.config.map(Config.mdt.roles.medicalJobs, Kora.config.boolean(false), {
         label = 'Medical jobs',
         description = 'Lists the job names that receive medical access to the MDT. Use the job name as the key and true as the value; removing a row revokes that job’s medical role after the resource restarts.',
     })
-    Config.mdt.roles.judgeJobs = QB.config.map(Config.mdt.roles.judgeJobs, QB.config.boolean(false), {
+    Config.mdt.roles.judgeJobs = Kora.config.map(Config.mdt.roles.judgeJobs, Kora.config.boolean(false), {
         label = 'Judge jobs',
         description = 'Lists the job names that receive judicial access to the MDT. Use the job name as the key and true as the value; removing a row revokes that job’s judge role after the resource restarts.',
     })
-    Config.mdt.firearms.lookupMode = QB.config.enum(Config.mdt.firearms.lookupMode, {
+    Config.mdt.firearms.lookupMode = Kora.config.enum(Config.mdt.firearms.lookupMode, {
         label = 'Firearm lookup mode',
         description = 'Chooses where firearm sale records can be searched. NPC requires players to use a configured records clerk in person, while MDT exposes the lookup from the terminal.',
         options = {
@@ -125,20 +125,20 @@ if QB and QB.config and QB.config.adopt then
             { value = 'mdt', label = 'MDT terminal' },
         },
     })
-    Config.mdt.weaponLicence.interactionPoint = QB.config.vector3(Config.mdt.weaponLicence.interactionPoint, {
+    Config.mdt.weaponLicence.interactionPoint = Kora.config.vector3(Config.mdt.weaponLicence.interactionPoint, {
         label = 'Weapon licence counter',
         description = 'Sets the world position of the weapon-licence range counter where players start the test. The target prompt only appears around this point, so it does not show on other targets in the same building such as the vending machine.',
     })
-    Config.mdt.weaponLicence.interactionRadius = QB.config.number(Config.mdt.weaponLicence.interactionRadius, {
+    Config.mdt.weaponLicence.interactionRadius = Kora.config.number(Config.mdt.weaponLicence.interactionRadius, {
         label = 'Weapon licence counter radius',
         description = 'Sets the radius, in game units, of the target sphere around the weapon-licence counter point. Keep it small so neighbouring targets are not included.',
         min = 0.5,
     })
 
-    Config = QB.config.adopt(Config, { descriptions = {
+    Config = Kora.config.adopt(Config, { descriptions = {
         ['mdt.command'] = 'Sets the client command players run to open the MDT. Enter the command name without a slash; role and on-duty checks still run on the server before the terminal opens.',
         ['mdt.roles.requireOnDuty'] = 'Controls whether authorised police, medical, and judge jobs must also be marked on duty before they can open or use the MDT. Disable it only if this server intentionally grants off-duty access.',
-        ['mdt.firearms.shopId'] = 'Identifies the inventory shop whose weapon purchases require a weapon licence and are written to the firearm registry. The value must exactly match the shop ID emitted by qbinventory.',
+        ['mdt.firearms.shopId'] = 'Identifies the inventory shop whose weapon purchases require a weapon licence and are written to the firearm registry. The value must exactly match the shop ID emitted by kora_inventory.',
         ['mdt.firearms.shopRecords'] = 'Defines the in-world firearm records clerks used in NPC lookup mode. Each numbered row needs a coords vector4 and a label; the server only releases a sale record when the player is close to one of these coordinates.',
         ['mdt.weaponLicence.weapon'] = 'Sets the temporary weapon issued for the live-fire licence test. Use the exact inventory weapon name because the server verifies every recorded training shot against this value.',
         ['mdt.weaponLicence.targetModel'] = 'Sets the prop model spawned for each temporary firing-range target. The model must exist and be loadable by the client or the licence session is cancelled when no targets can be created.',
