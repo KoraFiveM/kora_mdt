@@ -1,0 +1,52 @@
+{
+  "resource": "kora_mdt",
+  "standardsRevision": "2026-11-12.2",
+  "realms": {
+    "client": [
+      "client/main.lua",
+      "client/terminal.lua"
+    ],
+    "server": [
+      "server/boot.lua",
+      "server/main.lua",
+      "server/schema.lua"
+    ],
+    "shared": [
+      "config.lua",
+      "shared/required.lua"
+    ],
+    "manifest": [
+      "fxmanifest.lua"
+    ],
+    "test": [
+      "test/harness.lua",
+      "test/mocks.lua",
+      "test/smoke/client.lua",
+      "test/smoke/collation.lua",
+      "test/smoke/server.lua"
+    ]
+  },
+  "exclude": [
+    ".git/*",
+    ".github/*",
+    ".standards/*",
+    "node_modules/*",
+    "**/node_modules/*",
+    "vendor/*",
+    "**/vendor/*",
+    "web/*",
+    "ui/*",
+    "html/*",
+    "dist/*",
+    "artifacts/*",
+    "runtime/*",
+    "txData/*",
+    "storage/*",
+    "stream/*",
+    "docs/*",
+    "__pycache__/*",
+    "modules/lookup/data/*"
+  ],
+  "project": "Kora Framework",
+  "copyright": "Copyright © 2026 Kora Framework"
+}
