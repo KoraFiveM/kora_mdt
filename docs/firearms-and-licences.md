@@ -1,6 +1,6 @@
 ---
 title: Firearms and licences
-sidebar_position: 5
+sidebar_position: 9
 ---
 
 # Firearms and licences
