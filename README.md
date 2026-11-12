@@ -71,3 +71,5 @@ The next useful additions from larger MDT systems are multi-person/multi-charge
 reports, evidence chain of custody, case assignment and notes, live dispatch and
 unit status integration, impound history, personnel/FTO tools, and rank-based
 permission management.
+
+Full documentation: see [docs/](docs/index.md).
