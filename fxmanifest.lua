@@ -4,7 +4,7 @@ lua54 'yes'
 
 name 'kora_mdt'
 author 'qbcore2'
-version '0.2.0'
+version '0.2.1'
 description 'Role-gated police, court, and medical records terminal'
 
 dependency 'kora_lib'
