@@ -31,11 +31,11 @@ local function form(title, fields)
     return result.values
 end
 local function notify(message, kind)
-    Kora.notify.send({ title = 'MDT', message = message, type = kind or 'info' })
+    Kora.notify.send({ title = Kora.lang('Terminal.mdt'), message = message, type = kind or 'info' })
 end
 RegisterCommand(C.command, function()
     local ok, err = Kora.events.trigger('kora_mdt:server:open')
-    if not ok then notify(err or 'The MDT could not be reached.', 'error') end
+    if not ok then notify(err or Kora.lang('Error.mdt_unreachable'), 'error') end
 end, false)
 
 local function removeTrainingZone()
@@ -52,7 +52,7 @@ local function cancelTrainingOutsideZone(watch)
     trainingCancelled = true
     RemoveWeaponFromPed(PlayerPedId(), joaat(trainingWeapon))
     Kora.events.trigger('kora_mdt:server:cancelWeaponLicence')
-    notify('You left Ammu-Nation. The range weapon was removed.', 'error')
+    notify(Kora.lang('Notify.you_left_ammu_nation_the'), 'error')
 end
 
 local function clearTrainingTargets()
@@ -78,7 +78,7 @@ RegisterNetEvent('kora_mdt:client:weaponLicenceStart', function(settings)
     if #trainingTargets == 0 then
         training = false
         Kora.events.trigger('kora_mdt:server:cancelWeaponLicence')
-        return notify('The range targets could not be loaded.', 'error')
+        return notify(Kora.lang('Notify.the_range_targets_could_not'), 'error')
     end
     -- Edge-triggered instead of polling the player's position: the shared
     -- kora_lib zone grid reports the exit, and one delayed check covers a
@@ -94,7 +94,7 @@ RegisterNetEvent('kora_mdt:client:weaponLicenceStart', function(settings)
         if not training or trainingWatch ~= watch then return end
         if not isInsideWeaponLicenceZone(GetEntityCoords(PlayerPedId())) then cancelTrainingOutsideZone(watch) end
     end)
-    notify(('Fire all %d training rounds to complete the live-fire test.'):format(settings.shots))
+    notify(Kora.lang('Notify.fire_all_training_rounds_to', settings.shots))
 end)
 RegisterNetEvent('kora_mdt:client:weaponLicenceQualification', function(authorization)
     if not training or type(authorization) ~= 'string' then return end
@@ -113,8 +113,8 @@ RegisterNetEvent('kora_mdt:client:weaponLicenceResult', function(passed, shots)
     training = false
     trainingWatch = trainingWatch + 1
     trainingWeapon = nil
-    notify(passed and 'Qualification passed. Weapon licence issued.'
-        or ('Qualification failed after %d rounds. Try again.'):format(shots or 0), passed and 'success' or 'error')
+    notify(passed and Kora.lang('Notify.qualification_passed_weapon_licence_issued')
+        or Kora.lang('Notify.qualification_failed_after_rounds_try', shots or 0), passed and 'success' or 'error')
 end)
 
 RegisterNetEvent('kora_mdt:client:analysisStage', function(stage, authorization)
@@ -125,11 +125,11 @@ RegisterNetEvent('kora_mdt:client:analysisStage', function(stage, authorization)
         Kora.events.trigger('kora_mdt:server:analysisStage', result.proof)
     else
         Kora.events.trigger('kora_mdt:server:cancelAnalysis')
-        notify('Analysis stage failed.', 'error')
+        notify(Kora.lang('Notify.analysis_stage_failed'), 'error')
     end
 end)
 RegisterNetEvent('kora_mdt:client:analysisComplete', function(result)
-    notify(('Case %s linked to %s (%s).'):format(result.caseId, result.weapon, result.weaponSerial), 'success')
+    notify(Kora.lang('Notify.case_linked_to', result.caseId, result.weapon, result.weaponSerial), 'success')
 end)
 
 local licenceTarget, recordsClerks = nil, {}
@@ -137,7 +137,7 @@ local licenceTarget, recordsClerks = nil, {}
 local function registerLicenceTarget()
     if licenceTarget or GetResourceState('kora_target') ~= 'started' then return end
     local licence = C.weaponLicence
-    local options = { { label = 'start weapon licence range', icon = 'crosshair', onSelect = function() Kora.events.trigger('kora_mdt:server:startWeaponLicence') end } }
+    local options = { { label = Kora.lang('Terminal.start_weapon_licence_range'), icon = 'crosshair', onSelect = function() Kora.events.trigger('kora_mdt:server:startWeaponLicence') end } }
 
     -- A point keeps the prompt off other targets inside the building (e.g. the vending machine).
     if licence.interactionPoint then
@@ -163,10 +163,10 @@ local function registerRecordsClerk(clerk)
     if clerk.target or GetResourceState('kora_target') ~= 'started' then return end
     local record = clerk.record
     clerk.target = exports.kora_target:addEntity(clerk.ped, { { label = record.label, icon = 'file-search', onSelect = function()
-        local input = form(record.label, { { id = 'serial', label = 'Gun serial number', type = 'text', required = true } })
+        local input = form(record.label, { { id = 'serial', label = Kora.lang('Terminal.gun_serial_number'), type = 'text', required = true } })
         if not input then return end
         local row, err = Kora.callback.trigger('kora_mdt:server:shopFirearm', input.serial)
-        notify(row and ('%s — owner %s'):format(row.weapon_name, row.owner_citizenid) or (err or 'No record found.'), row and 'info' or 'error')
+        notify(row and Kora.lang('Notify.owner', row.weapon_name, row.owner_citizenid) or (err or Kora.lang('Error.no_record_found')), row and 'info' or 'error')
     end } }, 2.0)
 end
 

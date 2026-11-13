@@ -2,8 +2,10 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
+files { 'locales/*.lua' }
+
 name 'kora_mdt'
-author 'qbcore2'
+author 'Kora'
 version '0.2.1'
 description 'Role-gated police, court, and medical records terminal'
 
@@ -17,7 +19,7 @@ dependency 'kora_dispatch'
 
 shared_scripts {
     '@kora_lib/init.lua',
-    'config.lua',
+    'shared/config.lua',
     'shared/required.lua',
 }
 

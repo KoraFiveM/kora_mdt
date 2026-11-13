@@ -90,7 +90,7 @@ local function formatTime(value)
     local parts = { YYYY = y, MM = mo, DD = d, HH = h, mm = mi, ss = se }
     return (tostring(C.dateFormat or 'YYYY-MM-DD HH:mm'):gsub('%a+', function(token)
         if parts[token] == nil then return token end
-        return ('%02d'):format(tonumber(parts[token]) or 0)
+        return Kora.lang('Error.value_02d', tonumber(parts[token]) or 0)
     end))
 end
 local function withTimes(data)
@@ -107,7 +107,7 @@ local function listQuery(what, sql, params)
     local rows, err = Kora.sql.query(sql, params)
     if not rows then
         logError(what .. ' query failed', err)
-        return nil, ('Could not load %s: %s'):format(what, cleanText(tostring(err or 'database query failed'), 200, false))
+        return nil, Kora.lang('Error.could_not_load', what, cleanText(tostring(err or Kora.lang('Error.database_query_failed')), 200, false))
     end
     return withTimes(rows)
 end
@@ -217,9 +217,9 @@ end)
 Kora.callback.register('kora_mdt:server:person', function(src, wanted)
     wanted = cleanCid(wanted)
     local r = role(src)
-    if not wanted or not r then return nil, 'not authorised' end
+    if not wanted or not r then return nil, Kora.lang('Error.not_authorised') end
     local identity = Kora.sql.single('SELECT `citizenid`,`name`,`phone_number`,`charinfo`,`job`,`metadata` FROM `players` WHERE `citizenid` = ? AND `deleted_at` IS NULL', { wanted })
-    if not identity then return nil, 'person not found' end
+    if not identity then return nil, Kora.lang('Error.person_not_found') end
     local metadata = type(identity.metadata) == 'string' and json.decode(identity.metadata) or (identity.metadata or {})
     local charinfo = type(identity.charinfo) == 'string' and json.decode(identity.charinfo) or (identity.charinfo or {})
     local job = type(identity.job) == 'string' and json.decode(identity.job) or (identity.job or {})
@@ -252,9 +252,9 @@ Kora.callback.register('kora_mdt:server:person', function(src, wanted)
 end)
 
 Kora.callback.register('kora_mdt:server:vehicle', function(src, plate)
-    if not can(src, 'police') then return nil, 'not authorised' end
+    if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
     plate = type(plate) == 'string' and plate:gsub('^%s+', ''):gsub('%s+$', ''):upper() or ''
-    if plate == '' or #plate > 15 then return nil, 'invalid plate' end
+    if plate == '' or #plate > 15 then return nil, Kora.lang('Error.invalid_plate') end
     local vehicle = Kora.sql.single([[SELECT v.`plate`,v.`model`,v.`citizenid`,v.`state`,v.`garage_id`,v.`impound_lot`,p.`name` AS `owner_name`
         FROM `player_vehicles` v LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = v.`citizenid` COLLATE utf8mb4_unicode_ci
         WHERE v.`plate` = ? AND v.`deleted_at` IS NULL]], { plate })
@@ -267,8 +267,8 @@ Kora.callback.register('kora_mdt:server:vehicle', function(src, plate)
 end)
 
 Kora.callback.register('kora_mdt:server:charges', function(src)
-    if not can(src, 'police') then return nil, 'not authorised' end
-    if not databaseReady then return nil, 'MDT database is still starting. Try again shortly.' end
+    if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
+    if not databaseReady then return nil, Kora.lang('Error.mdt_database_is_still_starting') end
     return chargeCache
 end)
 
@@ -277,52 +277,52 @@ Kora.callback.register('kora_mdt:server:canManageCharges', function(src)
 end)
 
 Kora.callback.register('kora_mdt:server:manageCharges', function(src)
-    if not isPoliceBoss(src) then return nil, 'not authorised' end
-    if not databaseReady then return nil, 'MDT database is still starting. Try again shortly.' end
+    if not isPoliceBoss(src) then return nil, Kora.lang('Error.not_authorised') end
+    if not databaseReady then return nil, Kora.lang('Error.mdt_database_is_still_starting') end
     return Kora.sql.query('SELECT `code`,`label`,`fine`,`active` FROM `kora_mdt_charges` ORDER BY `label`,`code`')
 end)
 
 Kora.callback.register('kora_mdt:server:createCharge', function(src, input)
-    if not isPoliceBoss(src) then return false, 'not authorised' end
-    if not databaseReady or type(input) ~= 'table' then return false, 'invalid charge' end
+    if not isPoliceBoss(src) then return false, Kora.lang('Error.not_authorised') end
+    if not databaseReady or type(input) ~= 'table' then return false, Kora.lang('Error.invalid_charge') end
     local code = cleanText(input.code, 32, true)
     local label = cleanText(input.label, 128, true)
     local fine = tonumber(input.fine)
     if not code or not code:match('^[%w_%-]+$') or not label or not fine or fine < 0 or fine > 2000000000 then
-        return false, 'enter a valid code, label, and non-negative fine'
+        return false, Kora.lang('Error.enter_a_valid_code_label')
     end
     code = code:upper()
     local _, err = Kora.sql.execute('INSERT INTO `kora_mdt_charges` (`code`,`label`,`fine`,`active`) VALUES (?,?,?,1)',
         { code, label, math.floor(fine) })
-    if err then return false, 'could not save charge (the code may already exist)' end
+    if err then return false, Kora.lang('Error.could_not_save_charge_the') end
     chargeCache = Kora.sql.query('SELECT `code`,`label`,`fine` FROM `kora_mdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`') or chargeCache
     audit(src, 'charge.create', 'charge', code, label)
     return true
 end)
 
 Kora.callback.register('kora_mdt:server:updateCharge', function(src, code, label, fine)
-    if not isPoliceBoss(src) then return false, 'not authorised' end
+    if not isPoliceBoss(src) then return false, Kora.lang('Error.not_authorised') end
     code = cleanText(code, 32, true)
     label = cleanText(label, 128, true)
     fine = tonumber(fine)
     if not databaseReady or not code or not code:match('^[%w_%-]+$') or not label
         or not fine or fine < 0 or fine > 2000000000 then
-        return false, 'enter a valid charge name and non-negative fine'
+        return false, Kora.lang('Error.enter_a_valid_charge_name')
     end
     code = code:upper()
     if not Kora.sql.single('SELECT `code` FROM `kora_mdt_charges` WHERE `code` = ?', { code }) then
-        return false, 'charge not found'
+        return false, Kora.lang('Error.charge_not_found')
     end
     local updated, err = Kora.sql.execute('UPDATE `kora_mdt_charges` SET `label` = ?, `fine` = ? WHERE `code` = ?',
         { label, math.floor(fine), code })
-    if err or updated == false then return false, err or 'could not update charge' end
+    if err or updated == false then return false, err or Kora.lang('Error.could_not_update_charge') end
     chargeCache = Kora.sql.query('SELECT `code`,`label`,`fine` FROM `kora_mdt_charges` WHERE `active` = 1 ORDER BY `label`,`code`') or chargeCache
     audit(src, 'charge.update', 'charge', code, label)
     return true
 end)
 
 Kora.callback.register('kora_mdt:server:addCriminal', function(src, wanted, code, notes)
-    if not can(src, 'police') then return false, 'not authorised' end
+    if not can(src, 'police') then return false, Kora.lang('Error.not_authorised') end
     wanted = cleanCid(wanted)
     local selection = cleanText(code, 128, false)
     local author = citizenId(src)
@@ -330,42 +330,42 @@ Kora.callback.register('kora_mdt:server:addCriminal', function(src, wanted, code
     local missing = missingRequired('criminal', { 'citizenid', 'charge', 'notes' },
         { citizenid = wanted, charge = selection, notes = notes })
     if missing then return false, missing end
-    if not author then return false, 'author unavailable' end
+    if not author then return false, Kora.lang('Error.author_unavailable') end
     local charge = Kora.sql.single('SELECT `code` FROM `kora_mdt_charges` WHERE `active` = 1 AND (`code` = ? OR `label` = ?)',
         { selection:upper(), selection })
-    if not charge then return false, 'unknown charge' end
-    if not personExists(wanted) then return false, 'citizen not found' end
+    if not charge then return false, Kora.lang('Error.unknown_charge') end
+    if not personExists(wanted) then return false, Kora.lang('Error.citizen_not_found') end
     local written, err = Kora.sql.execute('INSERT INTO `kora_mdt_criminal_records` (`citizenid`,`charge_code`,`notes`,`author_citizenid`) VALUES (?,?,?,?)',
         { wanted, charge.code, notes, author })
-    if not written then return false, err or 'database error' end
+    if not written then return false, err or Kora.lang('Error.database_error') end
     audit(src, 'criminal.create', 'citizen', wanted, code)
     return true
 end)
 
 Kora.callback.register('kora_mdt:server:addMedical', function(src, wanted, notes)
-    if not can(src, 'medical') then return false, 'not authorised' end
+    if not can(src, 'medical') then return false, Kora.lang('Error.not_authorised') end
     wanted = cleanCid(wanted)
     local author = citizenId(src)
     notes = cleanText(notes, 1000, false)
     local missing = missingRequired('medical', { 'citizenid', 'notes' }, { citizenid = wanted, notes = notes })
     if missing then return false, missing end
-    if not author then return false, 'author unavailable' end
-    if not personExists(wanted) then return false, 'citizen not found' end
+    if not author then return false, Kora.lang('Error.author_unavailable') end
+    if not personExists(wanted) then return false, Kora.lang('Error.citizen_not_found') end
     local written, err = Kora.sql.execute('INSERT INTO `kora_mdt_medical_records` (`citizenid`,`notes`,`author_citizenid`) VALUES (?,?,?)',
         { wanted, notes, author })
-    if not written then return false, err or 'database error' end
+    if not written then return false, err or Kora.lang('Error.database_error') end
     audit(src, 'medical.create', 'citizen', wanted)
     return true
 end)
 
 Kora.callback.register('kora_mdt:server:shopFirearm', function(src, serial)
     serial = type(serial) == 'string' and serial:upper():sub(1, 96) or ''
-    if serial == '' then return nil, 'serial is required' end
+    if serial == '' then return nil, Kora.lang('Error.serial_is_required') end
     if C.firearms.lookupMode ~= 'mdt' then
         local validCounter = false
         for _, counter in ipairs(C.firearms.shopRecords) do if near(src, counter.coords, 2.0) then validCounter = true; break end end
-        if not validCounter then return nil, 'speak to the store records clerk' end
-    elseif not can(src, 'police') then return nil, 'not authorised' end
+        if not validCounter then return nil, Kora.lang('Error.speak_to_the_store_records') end
+    elseif not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
     return Kora.sql.single('SELECT `serial`,`weapon_name`,`owner_citizenid`,`licence_number`,`purchased_at` FROM `kora_mdt_firearms` WHERE `serial` = ?', { serial })
 end)
 
@@ -373,7 +373,7 @@ end)
 -- all mutations on the server; the AppShell is a presentation layer, not an
 -- authority boundary.
 Kora.callback.register('kora_mdt:server:dashboard', function(src)
-    if not can(src, 'police') then return nil, 'not authorised' end
+    if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
     local counts, countErr = Kora.sql.single([[SELECT
         (SELECT COUNT(*) FROM `kora_mdt_reports` WHERE `status` = 'open') AS `open_reports`,
         (SELECT COUNT(*) FROM `kora_mdt_cases` WHERE `status` <> 'closed') AS `open_cases`,
@@ -381,7 +381,7 @@ Kora.callback.register('kora_mdt:server:dashboard', function(src)
         (SELECT COUNT(*) FROM `kora_mdt_bolos` WHERE `status` = 'active' AND (`expires_at` IS NULL OR `expires_at` > NOW())) AS `active_bolos`]])
     if not counts then
         logError('dashboard counts query failed', countErr)
-        return nil, ('Could not load the dashboard: %s'):format(cleanText(tostring(countErr or 'database query failed'), 200, false))
+        return nil, Kora.lang('Error.could_not_load_the_dashboard', cleanText(tostring(countErr or Kora.lang('Error.database_query_failed')), 200, false))
     end
     local recent, recentErr = listQuery('recent reports', [[SELECT `id`,`title`,`status`,`author_citizenid`,]] .. ts('`updated_at`') .. [[ AS `updated_at`
         FROM `kora_mdt_reports` ORDER BY `updated_at` DESC, `id` DESC LIMIT 8]])
@@ -391,9 +391,9 @@ Kora.callback.register('kora_mdt:server:dashboard', function(src)
 end)
 
 Kora.callback.register('kora_mdt:server:searchPeople', function(src, query)
-    if not role(src) then return nil, 'not authorised' end
+    if not role(src) then return nil, Kora.lang('Error.not_authorised') end
     local term = likeTerm(query)
-    if not term then return nil, 'enter at least two characters' end
+    if not term then return nil, Kora.lang('Error.enter_at_least_two_characters') end
     return withTimes(Kora.sql.query(([[SELECT `citizenid`,`name`,`phone_number`,`last_updated`
         FROM `players` WHERE `deleted_at` IS NULL
         AND (LOCATE(?,`citizenid`) > 0 OR LOCATE(?,`name`) > 0 OR LOCATE(?,COALESCE(`phone_number`,'')) > 0)
@@ -401,9 +401,9 @@ Kora.callback.register('kora_mdt:server:searchPeople', function(src, query)
 end)
 
 Kora.callback.register('kora_mdt:server:searchVehicles', function(src, query)
-    if not can(src, 'police') then return nil, 'not authorised' end
+    if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
     local term = likeTerm(query)
-    if not term then return nil, 'enter at least two characters' end
+    if not term then return nil, Kora.lang('Error.enter_at_least_two_characters') end
     return Kora.sql.query(([[SELECT v.`plate`,v.`model`,v.`citizenid`,v.`state`,p.`name` AS `owner_name`
         FROM `player_vehicles` v LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = v.`citizenid` COLLATE utf8mb4_unicode_ci AND p.`deleted_at` IS NULL
         WHERE v.`deleted_at` IS NULL AND (LOCATE(?,v.`plate`) > 0 OR LOCATE(?,v.`model`) > 0
@@ -412,7 +412,7 @@ Kora.callback.register('kora_mdt:server:searchVehicles', function(src, query)
 end)
 
 Kora.callback.register('kora_mdt:server:reports', function(src)
-    if not can(src, 'police') then return nil, 'not authorised' end
+    if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
     return listQuery('reports', ([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`charge_code`,c.`label` AS `charge_label`,
         r.`subject_text`,r.`charge_text`,r.`author_citizenid`,]] .. ts('r.`updated_at`') .. [[ AS `updated_at`,p.`name` AS `subject_name`
         FROM `kora_mdt_reports` r LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
@@ -421,7 +421,7 @@ Kora.callback.register('kora_mdt:server:reports', function(src)
 end)
 
 Kora.callback.register('kora_mdt:server:reportOptions', function(src)
-    if not can(src, 'police') then return nil, 'not authorised' end
+    if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
     return listQuery('report options', [[SELECT r.`id`,r.`title`,
         COALESCE(p.`name`,r.`subject_citizenid`,r.`subject_text`,'Unknown') AS `subject`
         FROM `kora_mdt_reports` r
@@ -430,9 +430,9 @@ Kora.callback.register('kora_mdt:server:reportOptions', function(src)
 end)
 
 Kora.callback.register('kora_mdt:server:report', function(src, value)
-    if not can(src, 'police') then return nil, 'not authorised' end
+    if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
     local id = cleanId(value)
-    if not id then return nil, 'invalid report' end
+    if not id then return nil, Kora.lang('Error.invalid_report') end
     return withTimes(Kora.sql.single([[SELECT r.`id`,r.`title`,r.`narrative`,r.`status`,r.`subject_citizenid`,r.`subject_text`,r.`charge_text`,r.`charge_code`,
         r.`author_citizenid`,DATE_FORMAT(r.`created_at`, '%Y-%m-%d %H:%i:%s') AS `created_at`,
         p.`name` AS `subject_name`,a.`name` AS `author_name`,c.`label` AS `charge_label`,c.`fine`
@@ -463,11 +463,11 @@ local function createReport(src, input)
             if resolved then
                 subject = resolved
             elseif ambiguous then
-                return nil, ('More than one citizen is named "%s". Use the citizen ID instead.'):format(subjectText)
+                return nil, Kora.lang('Error.more_than_one_citizen_is', subjectText)
             elseif cid and cid:find('%d') then
-                return nil, 'Citizen ID not found. Check the subject citizen ID.'
+                return nil, Kora.lang('Error.citizen_id_not_found_check')
             elseif rules.allowUnknownSubject == false then
-                return nil, ('Subject must be a citizen ID. No citizen matches "%s".'):format(subjectText)
+                return nil, Kora.lang('Error.subject_must_be_a_citizen', subjectText)
             else
                 subjectFree = subjectText
             end
@@ -484,14 +484,14 @@ local function createReport(src, input)
         end
         if not chargeCode then
             if rules.allowCustomCharges == false then
-                return nil, ('"%s" is not in the charge list. Select a charge from the suggestions.'):format(chargeSelection)
+                return nil, Kora.lang('Error.is_not_in_the_charge', chargeSelection)
             end
             chargeFree = chargeSelection
         end
     end
 
     local author = citizenId(src)
-    if not author then return nil, 'Your character could not be identified. Reconnect and try again.' end
+    if not author then return nil, Kora.lang('Error.your_character_could_not_be') end
     -- A Lua table cannot hold nil, so absent optional values are bound as explicit SQL NULL.
     local NULL = Kora.sql.NULL
     local id, err = Kora.sql.insert([[INSERT INTO `kora_mdt_reports`
@@ -499,12 +499,12 @@ local function createReport(src, input)
         { title, narrative, subject or NULL, subjectFree or NULL, chargeCode or NULL, chargeFree or NULL, author })
     if not id then
         logError('createReport insert failed', err)
-        return nil, 'The report could not be saved (database error). Ask an administrator to check the server console.'
+        return nil, Kora.lang('Error.the_report_could_not_be')
     end
     if chargeCode and subject then
         local _, recordErr = Kora.sql.insert([[INSERT INTO `kora_mdt_criminal_records`
             (`citizenid`,`charge_code`,`notes`,`author_citizenid`) VALUES (?,?,?,?)]],
-            { subject, chargeCode, ('Report #%s: %s'):format(id, title):sub(1, 1000), author })
+            { subject, chargeCode, Kora.lang('Error.report', id, title):sub(1, 1000), author })
         if recordErr then logError('createReport criminal record insert failed', recordErr) end
     end
     audit(src, 'report.create', 'report', id, title)
@@ -512,43 +512,43 @@ local function createReport(src, input)
 end
 
 Kora.callback.register('kora_mdt:server:createReport', function(src, input)
-    if not databaseReady then return nil, 'MDT database is still starting. Try again shortly.' end
-    if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
+    if not databaseReady then return nil, Kora.lang('Error.mdt_database_is_still_starting') end
+    if not can(src, 'police') or type(input) ~= 'table' then return nil, Kora.lang('Error.not_authorised') end
     local ok, id, err = pcall(createReport, src, input)
     if not ok then
         logError('createReport raised an error', id)
-        return nil, 'The report could not be saved because of a server error. It has been logged.'
+        return nil, Kora.lang('Error.report_save_server_error')
     end
     return id, err
 end)
 
 Kora.callback.register('kora_mdt:server:closeReport', function(src, value)
-    if not can(src, 'police') then return false, 'not authorised' end
+    if not can(src, 'police') then return false, Kora.lang('Error.not_authorised') end
     local id = cleanId(value)
-    if not id then return false, 'invalid report' end
+    if not id then return false, Kora.lang('Error.invalid_report') end
     local changed, err = Kora.sql.update([[UPDATE `kora_mdt_reports` SET `status` = 'closed'
         WHERE `id` = ? AND `status` = 'open']], { id })
-    if not changed or changed < 1 then return false, err or 'report is already closed' end
+    if not changed or changed < 1 then return false, err or Kora.lang('Error.report_is_already_closed') end
     audit(src, 'report.close', 'report', id)
     return true
 end)
 
 Kora.callback.register('kora_mdt:server:cases', function(src)
-    if not can(src, 'police') then return nil, 'not authorised' end
+    if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
     return listQuery('cases', ([[SELECT c.`id`,c.`title`,c.`priority`,c.`status`,c.`lead_citizenid`,]] .. ts('c.`updated_at`') .. [[ AS `updated_at`,
         (SELECT COUNT(*) FROM `kora_mdt_case_reports` cr WHERE cr.`case_id` = c.`id`) AS `report_count`
         FROM `kora_mdt_cases` c ORDER BY (c.`status` <> 'closed') DESC,c.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit))
 end)
 
 Kora.callback.register('kora_mdt:server:case', function(src, value)
-    if not can(src, 'police') then return nil, 'not authorised' end
+    if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
     local id = cleanId(value)
-    if not id then return nil, 'invalid case' end
+    if not id then return nil, Kora.lang('Error.invalid_case') end
     local row = Kora.sql.single([[SELECT c.`id`,c.`title`,c.`summary`,c.`priority`,c.`status`,c.`lead_citizenid`,
         DATE_FORMAT(c.`created_at`, '%Y-%m-%d %H:%i:%s') AS `created_at`,
         DATE_FORMAT(c.`updated_at`, '%Y-%m-%d %H:%i:%s') AS `updated_at`,p.`name` AS `lead_name` FROM `kora_mdt_cases` c
         LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = c.`lead_citizenid` COLLATE utf8mb4_unicode_ci WHERE c.`id` = ?]], { id })
-    if not row then return nil, 'case not found' end
+    if not row then return nil, Kora.lang('Error.case_not_found') end
     withTimes(row)
     row.reports = Kora.sql.query([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,
         DATE_FORMAT(r.`updated_at`, '%Y-%m-%d %H:%i:%s') AS `updated_at`
@@ -559,7 +559,7 @@ Kora.callback.register('kora_mdt:server:case', function(src, value)
 end)
 
 Kora.callback.register('kora_mdt:server:createCase', function(src, input)
-    if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
+    if not can(src, 'police') or type(input) ~= 'table' then return nil, Kora.lang('Error.not_authorised') end
     local title = cleanText(input.title, 160, false)
     local summary = cleanText(input.summary, 8000, false)
     local priorities = { low = true, normal = true, high = true, critical = true }
@@ -571,7 +571,7 @@ Kora.callback.register('kora_mdt:server:createCase', function(src, input)
     local requestedReports = input.report_ids
     if requestedReports == nil and input.report_id ~= nil then requestedReports = { input.report_id } end
     if requestedReports ~= nil then
-        if type(requestedReports) ~= 'table' then return nil, 'invalid initial reports' end
+        if type(requestedReports) ~= 'table' then return nil, Kora.lang('Error.invalid_initial_reports') end
         for _, entry in ipairs(requestedReports) do
             local value = type(entry) == 'table' and entry.value or entry
             if type(value) == 'string' then
@@ -579,10 +579,10 @@ Kora.callback.register('kora_mdt:server:createCase', function(src, input)
                 if ok then value = decoded end
             end
             local reportId = cleanId(value)
-            if not reportId then return nil, 'invalid initial report' end
+            if not reportId then return nil, Kora.lang('Error.invalid_initial_report') end
             if not seenReports[reportId] then
                 if not Kora.sql.single('SELECT `id` FROM `kora_mdt_reports` WHERE `id` = ?', { reportId }) then
-                    return nil, 'initial report not found'
+                    return nil, Kora.lang('Error.initial_report_not_found')
                 end
                 seenReports[reportId] = true
                 reportIds[#reportIds + 1] = reportId
@@ -593,7 +593,7 @@ Kora.callback.register('kora_mdt:server:createCase', function(src, input)
     local lead = citizenId(src)
     local id, err = Kora.sql.insert([[INSERT INTO `kora_mdt_cases`
         (`title`,`summary`,`priority`,`lead_citizenid`) VALUES (?,?,?,?)]], { title, summary, priority, lead })
-    if not id then return nil, err or 'database error' end
+    if not id then return nil, err or Kora.lang('Error.database_error') end
     for _, reportId in ipairs(reportIds) do
         Kora.sql.execute('INSERT IGNORE INTO `kora_mdt_case_reports` (`case_id`,`report_id`) VALUES (?,?)', { id, reportId })
     end
@@ -602,32 +602,32 @@ Kora.callback.register('kora_mdt:server:createCase', function(src, input)
 end)
 
 Kora.callback.register('kora_mdt:server:updateCaseStatus', function(src, value, status)
-    if not can(src, 'police') then return false, 'not authorised' end
+    if not can(src, 'police') then return false, Kora.lang('Error.not_authorised') end
     local id = cleanId(value)
     local states = { open = true, investigating = true, closed = true }
-    if not id or not states[status] then return false, 'invalid case status' end
+    if not id or not states[status] then return false, Kora.lang('Error.invalid_case_status') end
     local changed, err = Kora.sql.update('UPDATE `kora_mdt_cases` SET `status` = ? WHERE `id` = ? AND `status` <> ?', { status, id, status })
-    if not changed or changed < 1 then return false, err or 'case already has that status' end
+    if not changed or changed < 1 then return false, err or Kora.lang('Error.case_already_has_that_status') end
     audit(src, 'case.status', 'case', id, status)
     return true
 end)
 
 Kora.callback.register('kora_mdt:server:linkCaseReport', function(src, caseValue, reportValue)
-    if not can(src, 'police') then return false, 'not authorised' end
+    if not can(src, 'police') then return false, Kora.lang('Error.not_authorised') end
     local caseId, reportId = cleanId(caseValue), cleanId(reportValue)
-    if not caseId or not reportId then return false, 'invalid case or report' end
-    if not Kora.sql.single('SELECT `id` FROM `kora_mdt_cases` WHERE `id` = ?', { caseId }) then return false, 'case not found' end
-    if not Kora.sql.single('SELECT `id` FROM `kora_mdt_reports` WHERE `id` = ?', { reportId }) then return false, 'report not found' end
+    if not caseId or not reportId then return false, Kora.lang('Error.invalid_case_or_report') end
+    if not Kora.sql.single('SELECT `id` FROM `kora_mdt_cases` WHERE `id` = ?', { caseId }) then return false, Kora.lang('Error.case_not_found') end
+    if not Kora.sql.single('SELECT `id` FROM `kora_mdt_reports` WHERE `id` = ?', { reportId }) then return false, Kora.lang('Error.report_not_found') end
     local result, err = Kora.sql.execute('INSERT IGNORE INTO `kora_mdt_case_reports` (`case_id`,`report_id`) VALUES (?,?)', { caseId, reportId })
-    if not result then return false, err or 'database error' end
+    if not result then return false, err or Kora.lang('Error.database_error') end
     local affectedRows = type(result) == 'table' and tonumber(result.affectedRows) or tonumber(result)
-    if affectedRows == 0 then return false, 'report is already linked' end
+    if affectedRows == 0 then return false, Kora.lang('Error.report_is_already_linked') end
     audit(src, 'case.report.link', 'case', caseId, tostring(reportId))
     return true
 end)
 
 Kora.callback.register('kora_mdt:server:warrants', function(src)
-    if not can(src, 'police') then return nil, 'not authorised' end
+    if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
     return listQuery('warrants', ([[SELECT w.`id`,w.`citizenid`,w.`reason`,
         IF(w.`status` = 'active' AND w.`expires_at` <= NOW(),'expired',w.`status`) AS `status`,
         DATE_FORMAT(w.`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,w.`author_citizenid`,p.`name` AS `subject_name`
@@ -636,28 +636,28 @@ Kora.callback.register('kora_mdt:server:warrants', function(src)
 end)
 
 Kora.callback.register('kora_mdt:server:createWarrant', function(src, input)
-    if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
+    if not can(src, 'police') or type(input) ~= 'table' then return nil, Kora.lang('Error.not_authorised') end
     local target = cleanCid(input.citizenid)
     local reason = cleanText(input.reason, 1000, false)
     local days = math.max(1, math.min(C.operations.warrantMaxDays, math.floor(tonumber(input.days) or C.operations.warrantDefaultDays)))
     local missing = missingRequired('warrant', { 'citizenid', 'reason' }, { citizenid = target, reason = reason })
     if missing then return nil, missing end
-    if not personExists(target) then return nil, 'Citizen ID not found. Check the citizen ID.' end
+    if not personExists(target) then return nil, Kora.lang('Error.citizen_id_not_found') end
     local id, err = Kora.sql.insert([[INSERT INTO `kora_mdt_warrants`
         (`citizenid`,`reason`,`author_citizenid`,`expires_at`) VALUES (?,?,?,DATE_ADD(NOW(), INTERVAL ? DAY))]],
         { target, reason, citizenId(src), days })
-    if not id then return nil, err or 'database error' end
+    if not id then return nil, err or Kora.lang('Error.database_error') end
     audit(src, 'warrant.create', 'warrant', id, target)
     return id
 end)
 
 Kora.callback.register('kora_mdt:server:closeWarrant', function(src, value, status)
-    if not can(src, 'police') then return false, 'not authorised' end
+    if not can(src, 'police') then return false, Kora.lang('Error.not_authorised') end
     local id = cleanId(value)
-    if not id or (status ~= 'served' and status ~= 'revoked') then return false, 'invalid warrant action' end
+    if not id or (status ~= 'served' and status ~= 'revoked') then return false, Kora.lang('Error.invalid_warrant_action') end
     local changed, err = Kora.sql.update([[UPDATE `kora_mdt_warrants` SET `status` = ?,`closed_by_citizenid` = ?
         WHERE `id` = ? AND `status` = 'active' AND `expires_at` > NOW()]], { status, citizenId(src), id })
-    if not changed or changed < 1 then return false, err or 'warrant is not active' end
+    if not changed or changed < 1 then return false, err or Kora.lang('Error.warrant_is_not_active') end
     audit(src, 'warrant.' .. status, 'warrant', id)
     return true
 end)
@@ -678,7 +678,7 @@ local function boloSubject(row)
 end
 
 Kora.callback.register('kora_mdt:server:bolos', function(src)
-    if not can(src, 'police') then return nil, 'not authorised' end
+    if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
     local rows, err = listQuery('BOLOs', ([[SELECT b.`id`,b.`subject_type`,b.`subject_identifier`,b.`subject_text`,
         b.`subject_label` AS `legacy_label`,p.`name` AS `linked_name`,p.`citizenid` AS `linked_citizenid`,
         b.`title`,b.`description`,
@@ -701,8 +701,8 @@ local function createBolo(src, input)
     local title = cleanText(input.title, 160, false)
     local description = cleanText(input.description, 1500, false)
     local days = math.max(1, math.min(C.operations.boloMaxDays, math.floor(tonumber(input.days) or C.operations.boloDefaultDays)))
-    if not kind then return nil, 'Choose a valid subject type (person or vehicle).' end
-    if identifier == '' then return nil, kind == 'vehicle' and 'Enter the vehicle plate.' or 'Enter a citizen ID or name for the subject.' end
+    if not kind then return nil, Kora.lang('Error.choose_a_valid_subject_type') end
+    if identifier == '' then return nil, kind == 'vehicle' and 'Enter the vehicle plate.' or Kora.lang('Error.enter_a_citizen_id_or') end
     local missing = missingRequired('bolo', { 'title', 'description' }, { title = title, description = description })
     if missing then return nil, missing end
     -- subject_text is exactly what was typed and is the only thing shown as the subject.
@@ -720,9 +720,9 @@ local function createBolo(src, input)
             if resolved then
                 identifier = resolved
             elseif ambiguous then
-                return nil, ('More than one citizen is named "%s". Use the citizen ID instead.'):format(identifier)
+                return nil, Kora.lang('Error.more_than_one_citizen_is', identifier)
             elseif rules.allowUnknownPersonSubject == false then
-                return nil, ('No citizen matches "%s". Enter a valid citizen ID or full name.'):format(identifier)
+                return nil, Kora.lang('Error.no_citizen_matches_enter_a', identifier)
             end
         end
     else
@@ -733,28 +733,28 @@ local function createBolo(src, input)
         VALUES (?,?,?,?,?,?,DATE_ADD(NOW(), INTERVAL ? DAY))]], { kind, identifier, typed, title, description, citizenId(src), days })
     if not id then
         logError('createBolo insert failed', err)
-        return nil, 'The BOLO could not be saved (database error). Ask an administrator to check the server console.'
+        return nil, Kora.lang('Error.the_bolo_could_not_be')
     end
     audit(src, 'bolo.create', 'bolo', id, identifier)
     return id
 end
 
 Kora.callback.register('kora_mdt:server:createBolo', function(src, input)
-    if not can(src, 'police') or type(input) ~= 'table' then return nil, 'not authorised' end
+    if not can(src, 'police') or type(input) ~= 'table' then return nil, Kora.lang('Error.not_authorised') end
     local ok, id, err = pcall(createBolo, src, input)
     if not ok then
         logError('createBolo raised an error', id)
-        return nil, 'The BOLO could not be saved because of a server error. It has been logged.'
+        return nil, Kora.lang('Error.bolo_save_server_error')
     end
     return id, err
 end)
 
 Kora.callback.register('kora_mdt:server:resolveBolo', function(src, value)
-    if not can(src, 'police') then return false, 'not authorised' end
+    if not can(src, 'police') then return false, Kora.lang('Error.not_authorised') end
     local id = cleanId(value)
-    if not id then return false, 'invalid BOLO' end
+    if not id then return false, Kora.lang('Error.invalid_bolo') end
     local changed, err = Kora.sql.update("UPDATE `kora_mdt_bolos` SET `status` = 'resolved' WHERE `id` = ? AND `status` = 'active'", { id })
-    if not changed or changed < 1 then return false, err or 'BOLO is not active' end
+    if not changed or changed < 1 then return false, err or Kora.lang('Error.bolo_is_not_active') end
     audit(src, 'bolo.resolve', 'bolo', id)
     return true
 end)
@@ -783,8 +783,8 @@ Kora.events.register('kora_mdt:server:open', function(src)
     local userRole = role(src)
     if not userRole then
         return Kora.notify.send(src, {
-            title = 'MDT',
-            message = 'You must be on duty as police, EMS, or a judge to use the MDT.',
+            title = Kora.lang('Terminal.mdt'),
+            message = Kora.lang('Notify.you_must_be_on_duty'),
             type = 'error',
         })
     end
@@ -882,17 +882,17 @@ end
 
 Kora.events.register('kora_mdt:server:startWeaponLicence', function(src)
     if training[src] then
-        return Kora.notify.send(src, { title = 'Weapon licence', message = 'A range session is already in progress.', type = 'error' })
+        return Kora.notify.send(src, { title = Kora.lang('Terminal.weapon_licence'), message = Kora.lang('Notify.a_range_session_is_already'), type = 'error' })
     end
     if not nearWeaponLicenceZone(src, C.weaponLicence.interactionDistance) then
-        return Kora.notify.send(src, { title = 'Weapon licence', message = 'Move closer to the range marker.', type = 'error' })
+        return Kora.notify.send(src, { title = Kora.lang('Terminal.weapon_licence'), message = Kora.lang('Notify.move_closer_to_the_range'), type = 'error' })
     end
 
     local cid = citizenId(src)
     local bucket = GetPlayerRoutingBucket(src)
     if not cid then return end
     if hasWeaponLicense(src) then
-        return Kora.notify.send(src, { title = 'Weapon licence', message = 'You already hold a weapon licence.', type = 'error' })
+        return Kora.notify.send(src, { title = Kora.lang('Terminal.weapon_licence'), message = Kora.lang('Notify.you_already_hold_a_weapon'), type = 'error' })
     end
 
     local state = {
@@ -903,7 +903,7 @@ Kora.events.register('kora_mdt:server:startWeaponLicence', function(src)
     }
     local started, startErr = exports.kora_inventory:StartTrainingWeapon(src, C.weaponLicence.weapon, C.weaponLicence.shots)
     if not started then
-        return Kora.notify.send(src, { title = 'Weapon licence', message = startErr or 'The range is unavailable.', type = 'error' })
+        return Kora.notify.send(src, { title = Kora.lang('Terminal.weapon_licence'), message = startErr or Kora.lang('Error.the_range_is_unavailable'), type = 'error' })
     end
 
     training[src] = state
