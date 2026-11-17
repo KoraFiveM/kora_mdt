@@ -704,7 +704,7 @@ h.test('a failing list query returns its reason and is logged instead of an empt
     handle.sqlSingle = function() return { open_reports = 4 } end
     local data, err = Kora.callback.registry['kora_mdt:server:dashboard'](94)
     h.assertEqual(data, nil)
-    h.assertTrue(err:find('Could not load recent reports', 1, true) ~= nil, tostring(err))
+    h.assertTrue(err:find('Could not load Recent reports', 1, true) ~= nil, tostring(err))
     handle.sqlQuery = function() return { { id = 4, title = 't', status = 'open', updated_at = 1793484969000 } } end
     data = Kora.callback.registry['kora_mdt:server:dashboard'](94)
     h.assertEqual(data.open_reports, 4)

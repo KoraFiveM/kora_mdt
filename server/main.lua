@@ -103,11 +103,12 @@ local function withTimes(data)
 end
 -- Runs a list query. A failure is logged and returned with its reason; callers must not
 -- turn it into an empty list, or a broken query reads as "No reports found."
-local function listQuery(what, sql, params)
+-- `what` names the list in the log; `label` is the locale key of the name the player sees.
+local function listQuery(what, label, sql, params)
     local rows, err = Kora.sql.query(sql, params)
     if not rows then
         logError(what .. ' query failed', err)
-        return nil, Kora.lang('Error.could_not_load', what, cleanText(tostring(err or Kora.lang('Error.database_query_failed')), 200, false))
+        return nil, Kora.lang('Error.could_not_load', Kora.lang(label), cleanText(tostring(err or Kora.lang('Error.database_query_failed')), 200, false))
     end
     return withTimes(rows)
 end
@@ -383,7 +384,7 @@ Kora.callback.register('kora_mdt:server:dashboard', function(src)
         logError('dashboard counts query failed', countErr)
         return nil, Kora.lang('Error.could_not_load_the_dashboard', cleanText(tostring(countErr or Kora.lang('Error.database_query_failed')), 200, false))
     end
-    local recent, recentErr = listQuery('recent reports', [[SELECT `id`,`title`,`status`,`author_citizenid`,]] .. ts('`updated_at`') .. [[ AS `updated_at`
+    local recent, recentErr = listQuery('recent reports', 'Terminal.recent_reports', [[SELECT `id`,`title`,`status`,`author_citizenid`,]] .. ts('`updated_at`') .. [[ AS `updated_at`
         FROM `kora_mdt_reports` ORDER BY `updated_at` DESC, `id` DESC LIMIT 8]])
     if not recent then return nil, recentErr end
     counts.recent = recent
@@ -413,7 +414,7 @@ end)
 
 Kora.callback.register('kora_mdt:server:reports', function(src)
     if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
-    return listQuery('reports', ([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`charge_code`,c.`label` AS `charge_label`,
+    return listQuery('reports', 'Terminal.reports', ([[SELECT r.`id`,r.`title`,r.`status`,r.`subject_citizenid`,r.`charge_code`,c.`label` AS `charge_label`,
         r.`subject_text`,r.`charge_text`,r.`author_citizenid`,]] .. ts('r.`updated_at`') .. [[ AS `updated_at`,p.`name` AS `subject_name`
         FROM `kora_mdt_reports` r LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
         LEFT JOIN `kora_mdt_charges` c ON c.`code` COLLATE utf8mb4_unicode_ci = r.`charge_code` COLLATE utf8mb4_unicode_ci
@@ -422,7 +423,7 @@ end)
 
 Kora.callback.register('kora_mdt:server:reportOptions', function(src)
     if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
-    return listQuery('report options', [[SELECT r.`id`,r.`title`,
+    return listQuery('report options', 'Terminal.reports', [[SELECT r.`id`,r.`title`,
         COALESCE(p.`name`,r.`subject_citizenid`,r.`subject_text`,'Unknown') AS `subject`
         FROM `kora_mdt_reports` r
         LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = r.`subject_citizenid` COLLATE utf8mb4_unicode_ci
@@ -535,7 +536,7 @@ end)
 
 Kora.callback.register('kora_mdt:server:cases', function(src)
     if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
-    return listQuery('cases', ([[SELECT c.`id`,c.`title`,c.`priority`,c.`status`,c.`lead_citizenid`,]] .. ts('c.`updated_at`') .. [[ AS `updated_at`,
+    return listQuery('cases', 'Terminal.cases', ([[SELECT c.`id`,c.`title`,c.`priority`,c.`status`,c.`lead_citizenid`,]] .. ts('c.`updated_at`') .. [[ AS `updated_at`,
         (SELECT COUNT(*) FROM `kora_mdt_case_reports` cr WHERE cr.`case_id` = c.`id`) AS `report_count`
         FROM `kora_mdt_cases` c ORDER BY (c.`status` <> 'closed') DESC,c.`updated_at` DESC LIMIT %d]]):format(C.operations.recentLimit))
 end)
@@ -628,7 +629,7 @@ end)
 
 Kora.callback.register('kora_mdt:server:warrants', function(src)
     if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
-    return listQuery('warrants', ([[SELECT w.`id`,w.`citizenid`,w.`reason`,
+    return listQuery('warrants', 'Terminal.warrants', ([[SELECT w.`id`,w.`citizenid`,w.`reason`,
         IF(w.`status` = 'active' AND w.`expires_at` <= NOW(),'expired',w.`status`) AS `status`,
         DATE_FORMAT(w.`expires_at`, '%%Y-%%m-%%d %%H:%%i:%%s') AS `expires_at`,w.`author_citizenid`,p.`name` AS `subject_name`
         FROM `kora_mdt_warrants` w LEFT JOIN `players` p ON p.`citizenid` COLLATE utf8mb4_unicode_ci = w.`citizenid` COLLATE utf8mb4_unicode_ci
@@ -679,7 +680,7 @@ end
 
 Kora.callback.register('kora_mdt:server:bolos', function(src)
     if not can(src, 'police') then return nil, Kora.lang('Error.not_authorised') end
-    local rows, err = listQuery('BOLOs', ([[SELECT b.`id`,b.`subject_type`,b.`subject_identifier`,b.`subject_text`,
+    local rows, err = listQuery('BOLOs', 'Terminal.bolos', ([[SELECT b.`id`,b.`subject_type`,b.`subject_identifier`,b.`subject_text`,
         b.`subject_label` AS `legacy_label`,p.`name` AS `linked_name`,p.`citizenid` AS `linked_citizenid`,
         b.`title`,b.`description`,
         IF(b.`status` = 'active' AND b.`expires_at` IS NOT NULL AND b.`expires_at` <= NOW(),'expired',b.`status`) AS `status`,
@@ -702,7 +703,7 @@ local function createBolo(src, input)
     local description = cleanText(input.description, 1500, false)
     local days = math.max(1, math.min(C.operations.boloMaxDays, math.floor(tonumber(input.days) or C.operations.boloDefaultDays)))
     if not kind then return nil, Kora.lang('Error.choose_a_valid_subject_type') end
-    if identifier == '' then return nil, kind == 'vehicle' and 'Enter the vehicle plate.' or Kora.lang('Error.enter_a_citizen_id_or') end
+    if identifier == '' then return nil, kind == 'vehicle' and Kora.lang('Error.enter_the_vehicle_plate') or Kora.lang('Error.enter_a_citizen_id_or') end
     local missing = missingRequired('bolo', { 'title', 'description' }, { title = title, description = description })
     if missing then return nil, missing end
     -- subject_text is exactly what was typed and is the only thing shown as the subject.

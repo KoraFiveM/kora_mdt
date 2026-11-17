@@ -162,7 +162,7 @@ local function openTerminal(role, policeBoss)
             { type = 'details', title = Kora.lang('Terminal.report_details'), columns = 2, items = {
                 { label = Kora.lang('Terminal.status'), value = tostring(row.status or Kora.lang('Terminal.unknown')) },
                 { label = Kora.lang('Terminal.subject'), value = tostring(row.subject_name or row.subject_citizenid or row.subject_text or Kora.lang('Terminal.unknown')) },
-                { label = Kora.lang('Terminal.charge'), value = tostring(row.charge_label or row.charge_text or 'None') },
+                { label = Kora.lang('Terminal.charge'), value = tostring(row.charge_label or row.charge_text or Kora.lang('Terminal.none')) },
                 { label = Kora.lang('Terminal.fine'), value = tostring(row.fine or '—') },
                 { label = Kora.lang('Terminal.author'), value = tostring(row.author_name or row.author_citizenid or Kora.lang('Terminal.unknown')) },
                 { label = Kora.lang('Terminal.created'), value = when(row.created_at, '—') },
@@ -203,11 +203,11 @@ local function openTerminal(role, policeBoss)
             description = row.status, timestamp = when(row.created_at, ''), icon = 'file-text',
         } end
         for index, row in ipairs(record.firearms or {}) do activity[#activity + 1] = {
-            id = 'firearm-' .. index, title = row.weapon_name or 'Registered firearm',
+            id = 'firearm-' .. index, title = row.weapon_name or Kora.lang('Terminal.registered_firearm'),
             description = row.serial, timestamp = when(row.purchased_at, ''), icon = 'crosshair', tone = 'primary',
         } end
         for index, row in ipairs(record.criminal or {}) do activity[#activity + 1] = {
-            id = 'criminal-' .. index, title = row.charge_code or 'Criminal record',
+            id = 'criminal-' .. index, title = row.charge_code or Kora.lang('Terminal.criminal_record'),
             description = row.notes, timestamp = when(row.created_at, ''), icon = 'scale', tone = 'warning',
         } end
         for index, row in ipairs(record.medical or {}) do activity[#activity + 1] = {
@@ -219,12 +219,12 @@ local function openTerminal(role, policeBoss)
             blocks = {
                 { type = 'details', title = Kora.lang('Terminal.identity'), columns = 2, items = {
                     { label = Kora.lang('Terminal.citizen_id'), value = record.citizenid, icon = 'contact' },
-                    { label = Kora.lang('Terminal.phone'), value = record.phone or 'Not recorded', icon = 'phone' },
-                    { label = Kora.lang('Terminal.date_of_birth'), value = record.birthdate or 'Not recorded' },
-                    { label = Kora.lang('Terminal.nationality'), value = record.nationality or 'Not recorded' },
-                    { label = Kora.lang('Terminal.occupation'), value = record.job or 'Unemployed' },
-                    { label = Kora.lang('Terminal.driver_licence'), value = record.driverLicensed and 'Valid' or 'Not held', tone = record.driverLicensed and 'success' or 'warning' },
-                    { label = Kora.lang('Terminal.weapon_licence'), value = record.weaponLicence or 'Not held', icon = 'shield' },
+                    { label = Kora.lang('Terminal.phone'), value = record.phone or Kora.lang('Terminal.not_recorded'), icon = 'phone' },
+                    { label = Kora.lang('Terminal.date_of_birth'), value = record.birthdate or Kora.lang('Terminal.not_recorded') },
+                    { label = Kora.lang('Terminal.nationality'), value = record.nationality or Kora.lang('Terminal.not_recorded') },
+                    { label = Kora.lang('Terminal.occupation'), value = record.job or Kora.lang('Terminal.unemployed') },
+                    { label = Kora.lang('Terminal.driver_licence'), value = record.driverLicensed and Kora.lang('Terminal.driver_licence_valid') or Kora.lang('Terminal.not_held'), tone = record.driverLicensed and 'success' or 'warning' },
+                    { label = Kora.lang('Terminal.weapon_licence'), value = record.weaponLicence or Kora.lang('Terminal.not_held'), icon = 'shield' },
                 } },
                 { type = 'timeline', title = Kora.lang('Terminal.linked_records_and_alerts'), items = activity, empty = Kora.lang('Terminal.no_linked_records') },
             },
@@ -245,11 +245,11 @@ local function openTerminal(role, policeBoss)
             id = 'vehicle-bolo-' .. bolo.id, title = bolo.title, description = bolo.description,
             timestamp = when(bolo.expires_at, ''), icon = 'siren', tone = 'destructive',
         } end
-        return showResult({ title = row.plate, description = row.model or 'Vehicle registration', blocks = {
+        return showResult({ title = row.plate, description = row.model or Kora.lang('Terminal.vehicle_registration'), blocks = {
             { type = 'details', title = Kora.lang('Terminal.registration'), columns = 2, items = {
                 { label = Kora.lang('Terminal.plate'), value = row.plate, icon = 'car-front' },
                 { label = Kora.lang('Terminal.model'), value = row.model or Kora.lang('Terminal.unknown') },
-                { label = Kora.lang('Terminal.owner'), value = row.owner_name or row.citizenid or 'State / unowned', icon = 'contact' },
+                { label = Kora.lang('Terminal.owner'), value = row.owner_name or row.citizenid or Kora.lang('Terminal.state_unowned'), icon = 'contact' },
                 { label = Kora.lang('Terminal.citizen_id'), value = row.citizenid or '—' },
                 { label = Kora.lang('Terminal.state'), value = row.state or Kora.lang('Terminal.unknown'), tone = row.state == 'out' and 'warning' or 'neutral' },
                 { label = Kora.lang('Terminal.garage_lot'), value = row.impound_lot or row.garage_id or '—' },
@@ -259,7 +259,7 @@ local function openTerminal(role, policeBoss)
     end
 
     local peopleFields = { { id = 'query', label = Kora.lang('Terminal.name_citizen_id_or_phone'), type = 'text', required = true, minLength = 2, maxLength = 64 } }
-    local lookupActions = { action('person:search', medicalAccess and not criminalAccess and 'Search patients' or 'Search citizens', 'users', peopleFields) }
+    local lookupActions = { action('person:search', medicalAccess and not criminalAccess and Kora.lang('Terminal.search_patients') or Kora.lang('Terminal.search_citizens'), 'users', peopleFields) }
     if policeAccess then
         lookupActions[#lookupActions + 1] = action('vehicle:search', Kora.lang('Terminal.search_vehicles'), 'car-front', {
             { id = 'query', label = Kora.lang('Terminal.plate_model_owner_or_citizen'), type = 'text', required = true, minLength = 2, maxLength = 64 },
@@ -269,7 +269,7 @@ local function openTerminal(role, policeBoss)
             { id = 'serial', label = Kora.lang('Terminal.serial_number'), type = 'text', required = true, maxLength = 96 },
         })
     end
-    navigation[#navigation + 1] = { id = 'search', label = medicalAccess and not criminalAccess and 'Patients' or 'Search', icon = 'search',
+    navigation[#navigation + 1] = { id = 'search', label = medicalAccess and not criminalAccess and Kora.lang('Terminal.patients') or Kora.lang('Terminal.search'), icon = 'search',
         content = { title = Kora.lang('Terminal.records_search'), description = Kora.lang('Terminal.search_broadly_then_select_a'), blocks = { { type = 'actions', actions = lookupActions } } } }
 
     if policeAccess then
@@ -279,9 +279,9 @@ local function openTerminal(role, policeBoss)
             title = Kora.lang('Terminal.incident_reports'), blocks = { { type = 'actions', actions = {
                 action('report:create', Kora.lang('Terminal.new_incident_report'), 'file-plus', {
                     { id = 'title', label = Kora.lang('Terminal.title'), type = 'text', required = true, maxLength = 160 },
-                    { id = 'citizenid', label = req('report', 'subject') and 'Subject (citizen ID or name)' or 'Subject (citizen ID or name, optional)',
+                    { id = 'citizenid', label = req('report', 'subject') and Kora.lang('Terminal.subject_citizen_id_or_name') or Kora.lang('Terminal.subject_citizen_id_or_name_optional'),
                         type = 'text', maxLength = 64, required = req('report', 'subject') },
-                    { id = 'charge', label = req('report', 'charge') and 'Charge' or 'Charge (optional)', type = 'combobox',
+                    { id = 'charge', label = req('report', 'charge') and Kora.lang('Terminal.charge') or Kora.lang('Terminal.charge_optional'), type = 'combobox',
                         required = req('report', 'charge'), options = chargeOptions,
                         placeholder = Kora.lang('Terminal.type_to_search_charges') },
                     { id = 'narrative', label = Kora.lang('Terminal.incident_narrative'), type = 'textarea', required = req('report', 'narrative'), maxLength = 8000 },
@@ -380,7 +380,7 @@ local function openTerminal(role, policeBoss)
 
     local function refreshDashboard()
         local data, dashboardErr = Kora.callback.trigger('kora_mdt:server:dashboard')
-        if not data then return listFailed('dashboard', 1, 'the dashboard', dashboardErr) end
+        if not data then return listFailed('dashboard', 1, Kora.lang('Terminal.dashboard'), dashboardErr) end
         local recent = {}
         for _, row in ipairs(data.recent or {}) do recent[#recent + 1] = {
             id = tostring(row.id), title = Kora.lang('Terminal.report_summary', row.id, row.title),
@@ -400,7 +400,7 @@ local function openTerminal(role, policeBoss)
 
     local function refreshReports()
         local rows, err = Kora.callback.trigger('kora_mdt:server:reports')
-        if not rows then return listFailed('reports', 2, 'reports', err) end
+        if not rows then return listFailed('reports', 2, Kora.lang('Terminal.reports'), err) end
         local optionRows = Kora.callback.trigger('kora_mdt:server:reportOptions')
         if optionRows then
             for index = #reportOptions, 1, -1 do reportOptions[index] = nil end
@@ -426,7 +426,7 @@ local function openTerminal(role, policeBoss)
 
     local function refreshCases()
         local rows, err = Kora.callback.trigger('kora_mdt:server:cases')
-        if not rows then return listFailed('cases', 2, 'cases', err) end
+        if not rows then return listFailed('cases', 2, Kora.lang('Terminal.cases'), err) end
         for index = #caseOptions, 1, -1 do caseOptions[index] = nil end
         local output = {}
         for _, row in ipairs(rows) do
@@ -444,7 +444,7 @@ local function openTerminal(role, policeBoss)
 
     local function refreshWarrants()
         local rows, err = Kora.callback.trigger('kora_mdt:server:warrants')
-        if not rows then return listFailed('warrants', 2, 'warrants', err) end
+        if not rows then return listFailed('warrants', 2, Kora.lang('Terminal.warrants'), err) end
         local output = {}
         for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), status = statusCell(row.status),
             subject = row.subject_name or row.citizenid, citizenid = row.citizenid, reason = row.reason, expires = when(row.expires_at, '—') } end
@@ -457,7 +457,7 @@ local function openTerminal(role, policeBoss)
 
     local function refreshBolos()
         local rows, err = Kora.callback.trigger('kora_mdt:server:bolos')
-        if not rows then return listFailed('bolos', 2, 'BOLOs', err) end
+        if not rows then return listFailed('bolos', 2, Kora.lang('Terminal.bolos'), err) end
         local output = {}
         for _, row in ipairs(rows) do output[#output + 1] = { id = tostring(row.id), status = statusCell(row.status),
             kind = tostring(row.subject_type or ''), subject = tostring(row.subject_label or row.subject_identifier or ''), title = tostring(row.title or ''),
@@ -475,8 +475,8 @@ local function openTerminal(role, policeBoss)
     end
 
     Kora.nui.registerApp({
-        id = 'kora_mdt:terminal', title = role == 'medical' and 'Medical Records Terminal' or 'Mobile Data Terminal',
-        description = role == 'medical' and 'Patient and treatment records' or 'Law enforcement operations and records',
+        id = 'kora_mdt:terminal', title = role == 'medical' and Kora.lang('Terminal.medical_records_terminal') or Kora.lang('Terminal.mobile_data_terminal'),
+        description = role == 'medical' and Kora.lang('Terminal.patient_and_treatment_records') or Kora.lang('Terminal.law_enforcement_operations_and_records'),
         icon = role == 'medical' and 'heart-pulse' or 'monitor-smartphone', width = 1240, height = 820,
         navigation = navigation, footer = Kora.lang('Terminal.every_record_is_permission_checked'),
         onAction = function(selectedId, context)
@@ -601,7 +601,7 @@ local function openTerminal(role, policeBoss)
                 local ok, err = Kora.callback.trigger('kora_mdt:server:updateCaseStatus', selectedCase.id, state)
                 if not ok then return message(false, nil, err) end
                 selectedCase.status = state
-                return update('cases', nil, savedNotice(Kora.lang('Notify.case_marked', state), refreshAll(refreshCases, refreshDashboard)))
+                return update('cases', nil, savedNotice(Kora.lang('Notify.case_marked', Kora.lang('Terminal.case_status_' .. state)), refreshAll(refreshCases, refreshDashboard)))
             elseif selectedId == 'warrant:refresh' and policeAccess then
                 local failure = refreshAll(refreshWarrants, refreshDashboard)
                 if failure then return message(false, nil, Kora.lang('Error.could_not_refresh_warrants', failure)) end
@@ -630,7 +630,7 @@ local function openTerminal(role, policeBoss)
                 local ok, err = Kora.callback.trigger('kora_mdt:server:closeWarrant', selectedWarrant.id, state)
                 if not ok then return message(false, nil, err) end
                 selectedWarrant.status = state
-                return update('warrants', nil, savedNotice(Kora.lang('Notify.warrant_marked', state), refreshAll(refreshWarrants, refreshDashboard)))
+                return update('warrants', nil, savedNotice(Kora.lang('Notify.warrant_marked', Kora.lang('Terminal.warrant_status_' .. state)), refreshAll(refreshWarrants, refreshDashboard)))
             elseif selectedId == 'bolo:refresh' and policeAccess then
                 local failure = refreshAll(refreshBolos, refreshDashboard)
                 if failure then return message(false, nil, Kora.lang('Error.could_not_refresh_bolos', failure)) end

@@ -12,7 +12,7 @@ sidebar_position: 12
 | "You must be on duty as police, EMS, or a judge to use the MDT." | The job is not in `roles`, or `requireOnDuty` is true and the player is off duty. |
 | "MDT database is still starting. Try again shortly." | The schema is not ready yet; `kora_sql` or the `players` table was not available within 60 seconds. Check the console for `[kora_mdt]` lines. |
 | "kora_core player schema unavailable; report creation will remain disabled." (console) | The `players` table did not appear. The boot thread stops and `kora_mdt:server:databaseReady` is never triggered, so charges and reports stay unavailable. |
-| "Could not load reports: ..." (and similar) | A list query failed. The reason is also printed to the server console. |
+| "Could not load Reports: ..." (and similar) | A list query failed. The reason is also printed to the server console. |
 | "Citizen ID not found" | A citizen ID containing a digit was submitted that does not exist (or is soft-deleted). |
 | "More than one citizen is named ..." | Name resolution found several matches; use the citizen ID. |
 | "speak to the store records clerk" | Firearm lookup in `npc` mode away from a clerk. |
