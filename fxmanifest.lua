@@ -6,7 +6,7 @@ files { 'locales/*.lua' }
 
 name 'kora_mdt'
 author 'Kora'
-version '0.2.1'
+version '0.2.2'
 description 'Role-gated police, court, and medical records terminal'
 
 dependency 'kora_lib'
